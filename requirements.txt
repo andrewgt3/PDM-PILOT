@@ -1,0 +1,10 @@
+psycopg2-binary
+redis
+pymongo
+python-dotenv
+pandas
+scikit-learn
+joblib
+numpy
+fastapi
+uvicorn

@@ -1,0 +1,6 @@
+id,Observation,Label
+1,"The landing gear retraction mechanism failed to operate smoothly.",Gear
+2,"Detected a crack in the windshield near the wiper assembly.",Windshield
+3,"Engine No. 2 oil pressure fluctuating excessively.",Engine
+4,"Communication radio experiencing static interference.",Avionics
+5,"Flap actuator hydraulic leak observed during inspection.",Hydraulics

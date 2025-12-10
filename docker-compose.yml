@@ -1,0 +1,64 @@
+services:
+  # 1. PostgreSQL + TimescaleDB (Time-series)
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    container_name: pdm-timescaledb
+    environment:
+      POSTGRES_USER: ${DT_POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${DT_POSTGRES_PASSWORD:-password}
+      POSTGRES_DB: ${DT_POSTGRES_DB:-pdm_timeseries}
+    ports:
+      - "5432:5432"
+    networks:
+      - pdm-network
+    volumes:
+      - timescaledb-data:/home/postgres/pgdata/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # 2. Redis (Caching / Hot Data)
+  redis:
+    image: redis:7.2-alpine
+    container_name: pdm-redis
+    ports:
+      - "6379:6379"
+    networks:
+      - pdm-network
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # 3. MongoDB (Unstructured / Logs)
+  mongodb:
+    image: mongo:7.0
+    container_name: pdm-mongodb
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-password}
+    ports:
+      - "27017:27017"
+    networks:
+      - pdm-network
+    volumes:
+      - mongodb-data:/data/db
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  pdm-network:
+    driver: bridge
+
+volumes:
+  timescaledb-data:
+  redis-data:
+  mongodb-data:

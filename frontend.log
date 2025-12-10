@@ -1,0 +1,99 @@
+127.0.0.1 - - [09/Dec/2025 18:32:49] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [09/Dec/2025 18:32:49] "GET /assets/index-CxTduNve.js HTTP/1.1" 200 -
+127.0.0.1 - - [09/Dec/2025 18:32:49] "GET /assets/index-VeQFcdjj.css HTTP/1.1" 200 -
+127.0.0.1 - - [09/Dec/2025 18:32:54] "GET /assets/ModelAudit-BsUw1nNV.js HTTP/1.1" 200 -
+127.0.0.1 - - [09/Dec/2025 18:32:56] "GET /audit HTTP/1.1" 200 -
+127.0.0.1 - - [09/Dec/2025 18:32:56] "GET /vite.svg HTTP/1.1" 200 -
+127.0.0.1 - - [09/Dec/2025 18:32:57] "GET /audit HTTP/1.1" 304 -
+127.0.0.1 - - [09/Dec/2025 18:33:13] "GET /audit HTTP/1.1" 200 -
+127.0.0.1 - - [09/Dec/2025 18:33:13] "GET /assets/index-CxTduNve.js HTTP/1.1" 200 -
+127.0.0.1 - - [09/Dec/2025 18:33:13] "GET /assets/index-VeQFcdjj.css HTTP/1.1" 200 -
+127.0.0.1 - - [09/Dec/2025 18:33:14] "GET /assets/ModelAudit-BsUw1nNV.js HTTP/1.1" 200 -
+127.0.0.1 - - [09/Dec/2025 18:33:14] "GET /vite.svg HTTP/1.1" 200 -
+127.0.0.1 - - [09/Dec/2025 18:40:28] "GET /audit HTTP/1.1" 304 -
+127.0.0.1 - - [09/Dec/2025 18:40:28] "GET /assets/index-CxTduNve.js HTTP/1.1" 304 -
+127.0.0.1 - - [09/Dec/2025 18:40:28] "GET /assets/index-VeQFcdjj.css HTTP/1.1" 304 -
+127.0.0.1 - - [09/Dec/2025 18:40:28] "GET /assets/ModelAudit-BsUw1nNV.js HTTP/1.1" 304 -
+127.0.0.1 - - [09/Dec/2025 18:43:14] "GET /audit HTTP/1.1" 200 -
+----------------------------------------
+Exception occurred during processing of request from ('127.0.0.1', 49215)
+Traceback (most recent call last):
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/socketserver.py", line 318, in _handle_request_noblock
+    self.process_request(request, client_address)
+    ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/socketserver.py", line 349, in process_request
+    self.finish_request(request, client_address)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/socketserver.py", line 362, in finish_request
+    self.RequestHandlerClass(request, client_address, self)
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/andrewgt3/Desktop/PDM-PILOT/server.py", line 30, in __init__
+    super().__init__(*args, directory=DIRECTORY, **kwargs)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/http/server.py", line 721, in __init__
+    super().__init__(*args, **kwargs)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/socketserver.py", line 766, in __init__
+    self.handle()
+    ~~~~~~~~~~~^^
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/http/server.py", line 485, in handle
+    self.handle_one_request()
+    ~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/http/server.py", line 453, in handle_one_request
+    self.raw_requestline = self.rfile.readline(65537)
+                           ~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/socket.py", line 725, in readinto
+    return self._sock.recv_into(b)
+           ~~~~~~~~~~~~~~~~~~~~^^^
+ConnectionResetError: [Errno 54] Connection reset by peer
+----------------------------------------
+127.0.0.1 - - [09/Dec/2025 18:43:14] "GET /assets/index-VeQFcdjj.css HTTP/1.1" 304 -
+127.0.0.1 - - [09/Dec/2025 18:43:14] "GET /.well-known/appspecific/com.chrome.devtools.json HTTP/1.1" 200 -
+127.0.0.1 - - [09/Dec/2025 18:43:14] "GET /assets/index-VeQFcdjj.css HTTP/1.1" 200 -
+127.0.0.1 - - [09/Dec/2025 18:43:14] "GET /assets/index-CxTduNve.js HTTP/1.1" 200 -
+127.0.0.1 - - [09/Dec/2025 18:43:14] "GET /assets/ModelAudit-BsUw1nNV.js HTTP/1.1" 200 -
+127.0.0.1 - - [09/Dec/2025 18:43:14] "GET /vite.svg HTTP/1.1" 200 -
+127.0.0.1 - - [09/Dec/2025 18:45:41] "GET /audit HTTP/1.1" 200 -
+127.0.0.1 - - [09/Dec/2025 18:45:41] "GET /assets/index-BpsYfCZc.js HTTP/1.1" 200 -
+127.0.0.1 - - [09/Dec/2025 18:45:41] "GET /assets/index-VeQFcdjj.css HTTP/1.1" 200 -
+127.0.0.1 - - [09/Dec/2025 18:45:41] "GET /assets/ModelAudit-6RZ3xTsx.js HTTP/1.1" 200 -
+127.0.0.1 - - [09/Dec/2025 18:45:41] "GET /audit_results.json HTTP/1.1" 200 -
+127.0.0.1 - - [09/Dec/2025 18:46:17] "GET /audit_results.json HTTP/1.1" 304 -
+127.0.0.1 - - [09/Dec/2025 18:48:12] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [09/Dec/2025 18:48:12] "GET /assets/index-BpsYfCZc.js HTTP/1.1" 304 -
+127.0.0.1 - - [09/Dec/2025 18:48:12] "GET /assets/index-VeQFcdjj.css HTTP/1.1" 304 -
+127.0.0.1 - - [09/Dec/2025 18:48:16] "GET /assets/ModelAudit-6RZ3xTsx.js HTTP/1.1" 304 -
+127.0.0.1 - - [09/Dec/2025 18:48:16] "GET /audit_results.json HTTP/1.1" 200 -
+127.0.0.1 - - [09/Dec/2025 18:48:29] "GET /audit_results.json HTTP/1.1" 304 -
+127.0.0.1 - - [09/Dec/2025 18:48:36] "GET /assets/AssetView-CHSdifQB.js HTTP/1.1" 200 -
+127.0.0.1 - - [09/Dec/2025 18:48:49] "GET /audit_results.json HTTP/1.1" 304 -
+127.0.0.1 - - [09/Dec/2025 19:05:49] "GET /audit HTTP/1.1" 304 -
+127.0.0.1 - - [09/Dec/2025 19:05:49] "GET /assets/index-VeQFcdjj.css HTTP/1.1" 304 -
+127.0.0.1 - - [09/Dec/2025 19:05:49] "GET /assets/index-BpsYfCZc.js HTTP/1.1" 304 -
+127.0.0.1 - - [09/Dec/2025 19:05:49] "GET /assets/ModelAudit-6RZ3xTsx.js HTTP/1.1" 304 -
+127.0.0.1 - - [09/Dec/2025 19:05:49] "GET /audit_results.json HTTP/1.1" 200 -
+127.0.0.1 - - [09/Dec/2025 20:06:53] "GET /audit HTTP/1.1" 304 -
+127.0.0.1 - - [09/Dec/2025 20:06:54] "GET /assets/index-BpsYfCZc.js HTTP/1.1" 304 -
+127.0.0.1 - - [09/Dec/2025 20:06:54] "GET /assets/index-VeQFcdjj.css HTTP/1.1" 304 -
+127.0.0.1 - - [09/Dec/2025 20:06:54] "GET /assets/ModelAudit-6RZ3xTsx.js HTTP/1.1" 304 -
+127.0.0.1 - - [09/Dec/2025 20:06:54] "GET /audit_results.json HTTP/1.1" 200 -
+127.0.0.1 - - [09/Dec/2025 20:12:05] "GET /audit_results.json HTTP/1.1" 200 -
+127.0.0.1 - - [09/Dec/2025 20:12:10] "GET /audit HTTP/1.1" 200 -
+127.0.0.1 - - [09/Dec/2025 20:12:10] "GET /assets/index-VeQFcdjj.css HTTP/1.1" 200 -
+127.0.0.1 - - [09/Dec/2025 20:12:10] "GET /assets/index-BpsYfCZc.js HTTP/1.1" 200 -
+127.0.0.1 - - [09/Dec/2025 20:12:10] "GET /assets/ModelAudit-6RZ3xTsx.js HTTP/1.1" 200 -
+127.0.0.1 - - [09/Dec/2025 20:12:10] "GET /vite.svg HTTP/1.1" 200 -
+127.0.0.1 - - [09/Dec/2025 20:12:19] "GET /audit_results.json HTTP/1.1" 304 -
+127.0.0.1 - - [09/Dec/2025 20:18:40] "GET /audit_results.json HTTP/1.1" 200 -
+127.0.0.1 - - [09/Dec/2025 20:18:43] "GET /audit HTTP/1.1" 200 -
+127.0.0.1 - - [09/Dec/2025 20:18:43] "GET /assets/index-VeQFcdjj.css HTTP/1.1" 200 -
+127.0.0.1 - - [09/Dec/2025 20:18:43] "GET /assets/index-BpsYfCZc.js HTTP/1.1" 200 -
+127.0.0.1 - - [09/Dec/2025 20:18:43] "GET /assets/ModelAudit-6RZ3xTsx.js HTTP/1.1" 200 -
+127.0.0.1 - - [09/Dec/2025 20:18:43] "GET /vite.svg HTTP/1.1" 200 -
+127.0.0.1 - - [09/Dec/2025 20:21:23] "GET /audit_results.json HTTP/1.1" 200 -
+127.0.0.1 - - [09/Dec/2025 20:34:36] "GET /audit HTTP/1.1" 304 -
+127.0.0.1 - - [09/Dec/2025 20:34:36] "GET /assets/index-VeQFcdjj.css HTTP/1.1" 304 -
+127.0.0.1 - - [09/Dec/2025 20:34:36] "GET /assets/index-BpsYfCZc.js HTTP/1.1" 304 -
+127.0.0.1 - - [09/Dec/2025 20:34:36] "GET /assets/ModelAudit-6RZ3xTsx.js HTTP/1.1" 304 -
+127.0.0.1 - - [09/Dec/2025 20:34:36] "GET /vite.svg HTTP/1.1" 304 -
+127.0.0.1 - - [09/Dec/2025 20:34:36] "GET /audit_results.json HTTP/1.1" 304 -
