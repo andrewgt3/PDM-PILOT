@@ -1,102 +1,144 @@
+"""
+OPC UA Fleet Client - Real-Time Data Ingestion to TimescaleDB
+==============================================================
+Subscribes to OPC UA server and streams live data to database.
+(Polling Version - Robust Fallback)
+
+Author: PlantAGI Team
+"""
+
 import asyncio
 import logging
+from datetime import datetime
 from asyncua import Client
-from sqlalchemy import create_engine, text
-import datetime
+from sqlalchemy import create_engine
+import pandas as pd
 
-# --- CONFIGURATION ---
+# Configuration
+OPCUA_ENDPOINT = "opc.tcp://localhost:4840/freeopcua/server/"
 DB_CONNECTION = "postgresql://postgres:password@localhost:5432/pdm_timeseries"
-OPC_URL = "opc.tcp://localhost:4840/freeopcua/server/"
-NAMESPACE_URI = "http://gaiapredictive.com/fleet"
+ROBOT_IDS = ["ROBOT_1", "ROBOT_2", "ROBOT_3", "ROBOT_4"]
 
-# Setup DB Engine
-engine = create_engine(DB_CONNECTION)
-
-class SubHandler:
-    """
-    Subscription Handler. 
-    This function triggers EVERY time a value changes on the server.
-    """
-    def __init__(self, asset_id, sensor_type):
-        self.asset_id = asset_id
-        self.sensor_type = sensor_type
-
-    def datachange_notification(self, node, val, data):
-        # We received a value. Insert into DB immediately.
-        # Note: In production, you would batch these. For MVP, direct insert is fine.
-        timestamp = datetime.datetime.now()
+class FleetDataStreamer:
+    def __init__(self):
+        self.engine = create_engine(DB_CONNECTION)
+        self.client = None
+        self.robot_nodes = {}
         
-        # We need to be careful. The DB expects a row with ALL columns.
-        # Since OPC sends updates individually, we will Upsert or simplified log.
-        # For this MVP, we will print to console and do a simplified update query.
+    async def connect_opcua(self):
+        """Connect to OPC UA server and discover robot nodes."""
+        print("=" * 80)
+        print("FLEET DATA STREAMER - OPC UA → TimescaleDB (Polling Mode)")
+        print("=" * 80)
+        print()
         
-        print(f"📥 {self.asset_id} | {self.sensor_type}: {val:.4f}")
+        self.client = Client(url=OPCUA_ENDPOINT)
+        await self.client.connect()
+        print(f"✓ Connected to OPC UA server: {OPCUA_ENDPOINT}")
         
-        # Construct a targeted update/insert query
-        # (Simplified: We assume a row exists for this second, or we insert new)
-        # For high-speed ingest, we typically buffer. 
-        # Here we just execute a raw insert for demonstration.
+        # Get namespace index
+        uri = "http://gaiapredictive.com/fleet"
+        idx = await self.client.get_namespace_index(uri)
         
+        # Discover robot nodes
+        objects = self.client.nodes.objects
+        
+        for robot_id in ROBOT_IDS:
+            robot_obj = await objects.get_child([f"{idx}:{robot_id}"])
+            
+            # Get sensor nodes
+            vib_node = await robot_obj.get_child([f"{idx}:Vibration_X"])
+            trq_node = await robot_obj.get_child([f"{idx}:Torque_J1"])
+            tmp_node = await robot_obj.get_child([f"{idx}:Motor_Temp"])
+            
+            self.robot_nodes[robot_id] = {
+                'vibration': vib_node,
+                'torque': trq_node,
+                'temperature': tmp_node
+            }
+            
+            print(f"  ✓ Discovered {robot_id}")
+        
+        print()
+        print(f"✓ All {len(ROBOT_IDS)} robots connected")
+        print()
+        
+    async def stream_data(self):
+        """Main streaming loop - reads OPC UA data and writes to database."""
+        print("Starting real-time data stream...")
+        print("=" * 80)
+        print()
+        
+        batch = []
+        batch_size = 1  # Write immediately for "live" feel in demo
+        
+        while True:
+            timestamp = datetime.now()
+            
+            # Read all robot sensors
+            for robot_id, nodes in self.robot_nodes.items():
+                try:
+                    vib = await nodes['vibration'].read_value()
+                    trq = await nodes['torque'].read_value()
+                    tmp = await nodes['temperature'].read_value()
+                    
+                    # Calculate simple RUL estimate
+                    if vib < 0.3:
+                        rul_estimate = 5000  # Healthy
+                    elif vib < 0.7:
+                        rul_estimate = 150   # Warning
+                    elif vib < 1.5:
+                        rul_estimate = 48    # Critical
+                    else:
+                        rul_estimate = 12    # Imminent failure
+                    
+                    batch.append({
+                        'timestamp': timestamp,
+                        'asset_id': robot_id,
+                        'vibration_x': round(vib, 4),
+                        'motor_temp_c': round(tmp, 2),
+                        'joint_1_torque': round(trq, 2),
+                        'rul_hours': rul_estimate
+                    })
+                    
+                    # Print status
+                    status = "🟢" if vib < 0.3 else "🟡" if vib < 0.7 else "🔴"
+                    print(f"{status} {robot_id}: Vib={vib:.3f}g  Torque={trq:.1f}Nm  Temp={tmp:.1f}°C")
+                    
+                except Exception as e:
+                    print(f"⚠️  Error reading {robot_id}: {e}")
+            
+            # Write to database
+            if batch:
+                try:
+                    df = pd.DataFrame(batch)
+                    df.to_sql('sensors', self.engine, if_exists='append', index=False)
+                    batch = []
+                except Exception as e:
+                    print(f"❌ Database write error: {e}")
+                    batch = []
+            
+            await asyncio.sleep(0.5)  # 2Hz sampling rate
+    
+    async def run(self):
+        """Main entry point."""
         try:
-             with engine.connect() as conn:
-                conn.execute(text(f"""
-                    INSERT INTO sensors (timestamp, asset_id, {self.sensor_type}, rul_hours)
-                    VALUES (:ts, :asset, :val, 1000)
-                    ON CONFLICT (timestamp, asset_id) 
-                    DO UPDATE SET {self.sensor_type} = :val
-                """), {"ts": timestamp, "asset": self.asset_id, "val": val})
-                conn.commit()
+            await self.connect_opcua()
+            await self.stream_data()
         except Exception as e:
-            print(f"DB Error: {e}")
+            print(f"\n❌ Streaming error: {e}")
+        finally:
+            if self.client:
+                await self.client.disconnect()
+                print("\n✓ Disconnected from OPC UA server")
 
 async def main():
-    print(f"🔌 Connecting to Gaia Virtual Fleet at {OPC_URL}...")
-    
-    async with Client(url=OPC_URL) as client:
-        # Get Namespace Index
-        idx = await client.get_namespace_index(NAMESPACE_URI)
-        print(f"✅ Connected! Namespace Index: {idx}")
-        
-        # Create Subscription
-        handler = SubHandler("null", "null") # Base handler
-        sub = await client.create_subscription(500, handler)
-        
-        # Scan for Robots and Subscribe
-        objects = client.nodes.objects
-        # We look for children in our namespace
-        children = await objects.get_children()
-        
-        print("🔍 Scanning for Assets...")
-        for child in children:
-            name = await child.read_browse_name()
-            if name.Name.startswith("ROBOT"):
-                asset_id = name.Name
-                print(f"   -> Found {asset_id}. Subscribing to tags...")
-                
-                # Find Sensors
-                vars = await child.get_children()
-                for v in vars:
-                    v_name = (await v.read_browse_name()).Name
-                    
-                    # Map OPC Tag Name to DB Column Name
-                    db_col = None
-                    if "Vibration" in v_name: db_col = "vibration_x"
-                    if "Torque" in v_name: db_col = "joint_1_torque"
-                    if "Temp" in v_name: db_col = "motor_temp_c"
-                    
-                    if db_col:
-                        # Create a specific handler for this tag
-                        h = SubHandler(asset_id, db_col)
-                        await sub.subscribe_data_change(v, h)
-        
-        print("🚀 Ingestion Active. Press Ctrl+C to stop.")
-        # Keep client alive
-        while True:
-            await asyncio.sleep(1)
+    streamer = FleetDataStreamer()
+    await streamer.run()
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.WARNING)
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("Stopped.")
+        print("\n\n⏹️  Streaming stopped by user")
