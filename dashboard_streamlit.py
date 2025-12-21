@@ -75,20 +75,12 @@ def load_data(asset_id=None):
             
     return df_fleet, df_history, df_events
 
-# --- PDF GENERATOR ---
-def create_work_order(asset_id, insight_text):
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", 'B', 16)
-    pdf.cell(0, 10, "Gaia Predictive | Automated Work Order", ln=True, align='C')
-    pdf.ln(10)
-    pdf.set_font("Arial", size=12)
-    pdf.cell(0, 10, f"Asset: {asset_id}", ln=True)
-    pdf.cell(0, 10, f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M')}", ln=True)
-    pdf.cell(0, 10, "Priority: CRITICAL", ln=True)
-    pdf.ln(10)
-    pdf.multi_cell(0, 10, f"Detected Issue:\n{insight_text}")
-    return pdf.output(dest='S').encode('latin-1')
+# --- HELPER: CHECK IF SERVER IS RUNNING ---
+def is_port_open(port):
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    result = sock.connect_ex(('localhost', port))
+    sock.close()
+    return result == 0
 
 # --- VIEW 1: FLEET OVERVIEW ---
 def render_fleet_view(df_fleet):
@@ -105,26 +97,38 @@ def render_fleet_view(df_fleet):
     
     st.divider()
 
-    # --- THE "START BUTTON" LOGIC ---
+    # --- THE SMART LAUNCHER ---
     if df_fleet.empty:
-        st.warning("⚠️ No Data Stream Detected.")
-        st.info("The Dashboard is running, but it cannot see the Fleet.")
+        st.warning("⚠️ System Offline.")
+        st.info("Physics Engine and Data Pipeline are currently stopped.")
         
-        col1, col2 = st.columns([1, 2])
-        with col1:
-            if st.button("🔌 Connect to Virtual Fleet", type="primary"):
-                try:
-                    # This launches the script in a separate background process
-                    # Using mock_fleet_streamer.py as the robust simulation source
-                    subprocess.Popen([sys.executable, "mock_fleet_streamer.py"])
-                    st.toast("Starting Virtual Fleet Simulator...", icon="🚀")
-                    time.sleep(3) # Give it a moment to connect
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Failed to launch script: {e}")
-        
-        with col2:
-            st.caption("Auto-lauches 'mock_fleet_streamer.py' background process.")
+        # This button does EVERYTHING now
+        if st.button("🚀 Initialize Gaia Simulation", type="primary"):
+            progress_text = "Initializing..."
+            my_bar = st.progress(0, text=progress_text)
+
+            # STEP 1: Check/Start Server (The Physics Engine)
+            # Mapped to opcua_fleet_server.py
+            if not is_port_open(4840):
+                my_bar.progress(30, text="Booting Physics Engine (OPC UA Server)...")
+                # Launch the server in the background
+                subprocess.Popen([sys.executable, "opcua_fleet_server.py"])
+                time.sleep(3) # Wait for it to spin up
+            else:
+                my_bar.progress(30, text="Physics Engine already running...")
+                time.sleep(1)
+
+            # STEP 2: Start Client (The Ingest)
+            # Mapped to mock_fleet_streamer.py (Direct Simulator for robustness)
+            my_bar.progress(70, text="Connecting Data Pipeline...")
+            subprocess.Popen([sys.executable, "mock_fleet_streamer.py"])
+            time.sleep(2)
+            
+            # STEP 3: Finish
+            my_bar.progress(100, text="System Online!")
+            time.sleep(1)
+            st.rerun()
+            
         return
 
     # THE GRID (Data is present)
@@ -137,12 +141,9 @@ def render_fleet_view(df_fleet):
             with st.container():
                 st.subheader(f"{asset}")
                 
-                # Use clean native metrics
-                # We will style these at the end of the function
                 st.metric(label="RUL (Hours)", value=f"{int(rul)}h", delta=None)
                 st.metric(label="Vibration", value=f"{row['vibration_x']:.2f}g", delta_color="inverse")
                 
-                # Color Coded Status Text
                 if rul < 24:
                     st.markdown(":red[**CRITICAL**]")
                     btn_type = "primary"
@@ -157,8 +158,6 @@ def render_fleet_view(df_fleet):
                     st.session_state['selected_asset'] = asset
                     st.rerun()
 
-    # APPLY THE "EXPENSIVE" LOOK
-    # This function from streamlit-extras adds shadows and nice borders automatically
     style_metric_cards(background_color="#262626", border_left_color="#00ADB5", border_radius_px=5, box_shadow=True)
 
 # --- VIEW 2: DETAIL VIEW ---
