@@ -29,16 +29,24 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- BACKEND (Cached) ---
+# --- BACKEND HELPERS ---
 @st.cache_resource
 def get_engine():
     return create_engine(DB_CONNECTION)
+
+def is_port_open(port):
+    """Checks if the Physics Engine (Server) is already running"""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    result = sock.connect_ex(('localhost', port))
+    sock.close()
+    return result == 0
 
 @st.cache_data(ttl=REFRESH_RATE_SEC)
 def load_data(asset_id=None):
     engine = get_engine()
     
     # 1. FLEET VIEW: Latest heartbeat
+    # Uses DISTINCT ON to get the single most recent row per robot
     query_fleet = """
     SELECT DISTINCT ON (asset_id) 
         asset_id, timestamp, vibration_x, motor_temp_c, rul_hours
@@ -47,7 +55,7 @@ def load_data(asset_id=None):
     ORDER BY asset_id, timestamp DESC
     """
     
-    # 2. DETAIL VIEW: Sliding window (20 mins)
+    # 2. DETAIL VIEW: Sliding window (Last 20 mins)
     query_history = ""
     query_events = ""
     if asset_id:
@@ -58,6 +66,7 @@ def load_data(asset_id=None):
         AND timestamp > NOW() - INTERVAL '20 minutes'
         ORDER BY timestamp DESC 
         """
+        # Get events for context overlay
         query_events = """
         SELECT timestamp, event_type 
         FROM events 
@@ -76,40 +85,37 @@ def load_data(asset_id=None):
             
     return df_fleet, df_history, df_events
 
-# --- HELPER: CHECK IF SERVER IS RUNNING ---
-def is_port_open(port):
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    result = sock.connect_ex(('localhost', port))
-    sock.close()
-    return result == 0
+# --- PDF GENERATOR ---
+def create_work_order(asset_id, insight_text):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", 'B', 16)
+    pdf.cell(0, 10, "Gaia Predictive | Automated Work Order", ln=True, align='C')
+    pdf.ln(10)
+    pdf.set_font("Arial", size=12)
+    pdf.cell(0, 10, f"Asset: {asset_id}", ln=True)
+    pdf.cell(0, 10, f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M')}", ln=True)
+    pdf.cell(0, 10, "Priority: CRITICAL", ln=True)
+    pdf.ln(10)
+    pdf.multi_cell(0, 10, f"Detected Issue:\n{insight_text}")
+    return pdf.output(dest='S').encode('latin-1')
 
 # --- VIEW 1: FLEET OVERVIEW ---
 def render_fleet_view(df_fleet):
     st.title("🏭 Fleet Command Center")
     st.caption("Live Telemetry | Zone A | 4 Active Assets")
     
-    # Logic for System Status
-    if not df_fleet.empty:
-        critical_assets = df_fleet[df_fleet['rul_hours'] < 48]
-        if len(critical_assets) >= 2:
-            st.error(f"🚨 SYSTEMIC FAILURE DETECTED: {len(critical_assets)} Assets Critical. Risk of Cascade.")
-        else:
-            st.success("✅  All Systems Nominal")
-    
-    st.divider()
-
-    # --- THE SMART LAUNCHER ---
+    # --- ONE-CLICK LAUNCHER LOGIC ---
     if df_fleet.empty:
         st.warning("⚠️ System Offline.")
         st.info("Physics Engine and Data Pipeline are currently stopped.")
         
-        # This button does EVERYTHING now
+        # The Magic Button
         if st.button("🚀 Initialize Gaia Simulation", type="primary"):
             progress_text = "Initializing..."
             my_bar = st.progress(0, text=progress_text)
 
             # STEP 1: Check/Start Server (The Physics Engine)
-            # Mapped to opcua_fleet_server.py
             if not is_port_open(4840):
                 my_bar.progress(30, text="Booting Physics Engine (OPC UA Server)...")
                 # Launch the server in the background
@@ -120,7 +126,6 @@ def render_fleet_view(df_fleet):
                 time.sleep(1)
 
             # STEP 2: Start Client (The Ingest)
-            # Mapped to mock_fleet_streamer.py (Direct Simulator for robustness)
             my_bar.progress(70, text="Connecting Data Pipeline...")
             subprocess.Popen([sys.executable, "mock_fleet_streamer.py"])
             time.sleep(2)
@@ -132,19 +137,31 @@ def render_fleet_view(df_fleet):
             
         return
 
-    # THE GRID (Data is present)
+    # --- SYSTEM STATUS BANNER ---
+    critical_assets = df_fleet[df_fleet['rul_hours'] < 48]
+    if len(critical_assets) >= 2:
+        st.error(f"🚨 SYSTEMIC FAILURE DETECTED: {len(critical_assets)} Assets Critical. Risk of Cascade.")
+    else:
+        st.success("✅  All Systems Nominal")
+    
+    st.divider()
+
+    # --- THE GRID ---
     cols = st.columns(4)
     for i, row in df_fleet.iterrows():
         asset = row['asset_id']
         rul = row['rul_hours']
+        vib = row['vibration_x']
         
         with cols[i % 4]:
             with st.container():
                 st.subheader(f"{asset}")
                 
+                # Native Metrics
                 st.metric(label="RUL (Hours)", value=f"{int(rul)}h", delta=None)
-                st.metric(label="Vibration", value=f"{row['vibration_x']:.2f}g", delta_color="inverse")
+                st.metric(label="Vibration", value=f"{vib:.2f}g", delta_color="inverse")
                 
+                # Status Logic
                 if rul < 24:
                     st.markdown(":red[**CRITICAL**]")
                     btn_type = "primary"
@@ -159,6 +176,7 @@ def render_fleet_view(df_fleet):
                     st.session_state['selected_asset'] = asset
                     st.rerun()
 
+    # Apply the "Expensive" Design
     style_metric_cards(background_color="#262626", border_left_color="#00ADB5", border_radius_px=5, box_shadow=True)
 
 # --- VIEW 2: DETAIL VIEW ---
@@ -174,19 +192,19 @@ def render_detail_view(asset_id, df_history, df_events):
         return
 
     # 1. Main Chart (Dark Theme Optimized)
-    chart_data = df_history.iloc[::5, :]
+    chart_data = df_history.iloc[::5, :] # Downsample for speed
     
     base = alt.Chart(chart_data).encode(
         x=alt.X('timestamp', axis=alt.Axis(title='Time', format='%H:%M:%S', labelColor='#888')),
         tooltip=['timestamp', 'vibration_x']
     )
     
-    # Make the line "Electric Teal" to match the theme
+    # "Electric Teal" Line
     line = base.mark_line(color='#00ADB5', strokeWidth=2).encode(
         y=alt.Y('vibration_x', title='Vibration (g)'),
     )
 
-    # Red Line Logic
+    # Context Overlay (Red Line)
     min_time = chart_data['timestamp'].min()
     visible_events = df_events[df_events['timestamp'] >= min_time]
     cleaning_events = visible_events[visible_events['event_type'].str.contains('Cleaning', na=False)]
@@ -222,7 +240,7 @@ def render_detail_view(asset_id, df_history, df_events):
             st.success("System Nominal")
             st.markdown("**Last Scan:** No anomalies.")
 
-# --- MAIN ---
+# --- MAIN APP ---
 def main():
     if 'selected_asset' not in st.session_state:
         st.session_state['selected_asset'] = None
@@ -231,8 +249,10 @@ def main():
         asset = st.session_state['selected_asset']
         df_fleet, df_history, df_events = load_data(asset)
     except Exception as e:
-        st.error(f"Connection Error: {e}")
-        st.stop()
+        # Fallback if DB is empty/unreachable
+        df_fleet = pd.DataFrame()
+        df_history = pd.DataFrame()
+        df_events = pd.DataFrame()
 
     if asset:
         render_detail_view(asset, df_history, df_events)
