@@ -15,6 +15,7 @@ Patent-Pending Logic:
 Author: Senior ML Engineering Team
 """
 
+import os
 import pandas as pd
 import numpy as np
 from sqlalchemy import create_engine, text
@@ -24,6 +25,9 @@ from datetime import datetime, timedelta
 import json
 import xgboost as xgb
 import warnings
+from dotenv import load_dotenv
+
+load_dotenv()
 warnings.filterwarnings('ignore')
 
 # =============================================================================
@@ -31,7 +35,9 @@ warnings.filterwarnings('ignore')
 # =============================================================================
 
 # Database connection
-DB_CONNECTION_STRING = "postgresql://postgres:password@localhost:5432/pdm_timeseries"
+DB_CONNECTION_STRING = os.getenv('DATABASE_URL')
+if not DB_CONNECTION_STRING:
+    raise ValueError("DATABASE_URL environment variable is required")
 
 # Feature engineering parameters
 ROLLING_WINDOW_SECONDS = 60  # 60-second rolling window

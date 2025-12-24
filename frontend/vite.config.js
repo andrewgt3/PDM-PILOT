@@ -1,25 +1,21 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
   server: {
-    port: 5174,
-  },
-  build: {
-    chunkSizeWarningLimit: 1600,
-    rollupOptions: {
-      output: {
-        manualChunks: {
-          vendor: ['react', 'react-dom', 'react-router-dom'],
-          antd: ['antd', '@ant-design/icons', '@ant-design/pro-components'],
-          charts: ['highcharts', 'highcharts-react-official', 'recharts', '@antv/g6'],
-        },
+    port: 5173,
+    proxy: {
+      '/api': {
+        target: 'http://localhost:8000',
+        changeOrigin: true
       },
-    },
-  },
-  optimizeDeps: {
-    include: ['@ant-design/pro-components', '@antv/g6', 'rc-field-form'],
-  },
+      '/ws': {
+        target: 'ws://localhost:8000',
+        ws: true
+      }
+    }
+  }
 })

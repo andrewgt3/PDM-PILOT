@@ -1,4 +1,6 @@
-psycopg2-binary
+# Database Drivers
+psycopg2-binary   # PostgreSQL driver
+sqlalchemy        # ORM for database operations
 redis
 pymongo
 python-dotenv
@@ -9,3 +11,17 @@ numpy
 fastapi
 uvicorn
 xgboost
+
+# Testing & Auditing Tools
+ruff              # Linting and logic errors
+bandit            # Security vulnerability scanning
+locust            # Load testing
+pytest            # Unit testing
+httpx             # Async testing
+
+# Authentication & Security
+python-jose[cryptography]  # JWT token handling
+passlib[bcrypt]            # Password hashing with bcrypt
+python-multipart           # Form data handling for OAuth2
+slowapi                    # Rate limiting for FastAPI
+

@@ -1,10 +1,6 @@
 [theme]
-base = "dark"
-primaryColor = "#00ADB5"  # "Electric Teal" (High tech look)
-backgroundColor = "#1E1E1E" # Dark Grey (Softer than pure black)
-secondaryBackgroundColor = "#262626" # Card background
-textColor = "#FAFAFA"
-font = "sans serif"
-
-[server]
-runOnSave = true
+base="light"
+primaryColor="#003478"
+backgroundColor="#ffffff"
+secondaryBackgroundColor="#f8f9fa"
+textColor="#212529"

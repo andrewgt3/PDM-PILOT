@@ -1,151 +1,176 @@
-import React, { useState, useEffect, Suspense } from "react";
-import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
-import Layout from "./components/Layout";
-import Dashboard from "./components/Dashboard";
-import AssetMonitor from "./components/AssetMonitor";
-import LoadingOverlay from "./components/LoadingOverlay";
-import ErrorBoundary from "./components/ErrorBoundary";
-import "./App.css";
-// Import pre-initialized Highcharts
-import './highcharts-init.js';
+import React, { useEffect, useState } from 'react';
+import { ThemeProvider, CssBaseline, Box, CircularProgress, Typography } from '@mui/material';
+import theme from './theme';
+import useWebSocket from './hooks/useWebSocket';
+import Sidebar from './components/Sidebar';
+import PlantOverview from './components/PlantOverview';
+import MachineDetail from './components/MachineDetail';
+import AnomalyDiscoveryPage from './pages/AnomalyDiscoveryPage';
+import { Factory } from 'lucide-react';
+import './index.css';
 
-const AssetView = React.lazy(() => import("./components/AssetView"));
-const ModelAudit = React.lazy(() => import("./components/ModelAudit"));
-const BackendStatus = React.lazy(() => import("./components/BackendStatus"));
-
-const MACHINE_IDS = [
-  "H29424", "H29425", "H29432", "H29434", "H29441", "H29452", "H29457", "H29462"
-];
-
-import { ConfigProvider } from 'antd';
-import enUS from 'antd/locale/en_US';
-import themeConfig from './theme/themeConfig';
+const API_BASE = 'http://localhost:8000';
+const WS_URL = 'ws://localhost:8000/ws/stream';
 
 function App() {
-  return (
-    <ErrorBoundary>
-      <ConfigProvider theme={themeConfig} locale={enUS}>
-        <AppContent />
-      </ConfigProvider>
-    </ErrorBoundary>
-  );
-}
+  const { messages, latestMessage, isConnected } = useWebSocket(WS_URL);
+  const [machines, setMachines] = useState([]);
+  const [selectedMachineId, setSelectedMachineId] = useState(null);
+  const [view, setView] = useState('overview'); // 'overview' or 'detail'
 
-function AppContent() {
-  const [robotsData, setRobotsData] = useState([]);
-  const [isDataLoading, setIsDataLoading] = useState(true);
-
-  // Robust Data Fetching with Guardrails
+  // Fetch initial machine list from REST API
   useEffect(() => {
-    let isMounted = true;
-    console.log('[App] Starting data fetch...');
-
-    const fetchData = async () => {
-      try {
-        console.log('[App] Fetching data for', MACHINE_IDS.length, 'machines');
-        // Fetch in parallel for all machines
-        const promises = MACHINE_IDS.map(async (id) => {
-          try {
-            const res = await fetch(`http://localhost:8000/api/v1/predict/machine/${id}`);
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            return await res.json();
-          } catch (e) {
-            console.warn(`Failed to fetch for ${id}:`, e);
-            // Fallback for individual machine failure to prevent entire dashboard crash
-            return {
-              machine_id: id,
-              status: "unknown",
-              failure_probability: 0,
-              rul_prediction: 0,
-              sensor_data: {}
-            };
-          }
-        });
-
-        const results = await Promise.all(promises);
-        console.log('[App] Fetched results:', results.length);
-
-        if (!isMounted) return;
-
-        const formattedData = results.map((r, i) => {
-          // GUARDRAIL: Ensure 'r' is an object
-          const safeR = r || {};
-
-          let status = "healthy";
-          // Helper to safely check string inclusion (Case Insensitive)
-          const safeStatus = (safeR.status || "").toString().toLowerCase();
-
-          if (safeStatus.includes("risk") || (safeR.failure_probability || 0) > 0.5) {
-            status = "critical";
-          } else if (safeStatus.includes("warn")) {
-            status = "warning";
-          } else if (safeStatus === "unknown") {
-            status = "unknown";
-          }
-
-          return {
-            id: safeR.machine_id || MACHINE_IDS[i],
-            name: `Robot ${i + 1}`, // Clean display name
-            status: status,
-            risk: safeR.failure_probability
-              ? Math.round(safeR.failure_probability * 100)
-              : 0,
-            prediction: safeR.rul_prediction
-              ? `${Math.max(1, Math.round((safeR.rul_prediction < 1 ? safeR.rul_prediction * 4000 : safeR.rul_prediction) / 24))} Days`
-              : "--",
-            degradation_score: safeR.degradation_score || 0,
-            details: safeStatus,
-            sensors: safeR.sensor_data || {}, // GUARDRAIL: Default to empty object
-          };
-        });
-
-        console.log('[App] Setting robots data:', formattedData.length, 'robots');
-        setRobotsData(formattedData);
-      } catch (err) {
-        console.error("Critical API Fetch Error:", err);
-        // Do not clear data on transient error, keep stale data if available
-      } finally {
-        if (isMounted) {
-          console.log('[App] Setting isDataLoading to false');
-          setIsDataLoading(false);
+    fetch(`${API_BASE}/api/machines`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.data) {
+          setMachines(data.data);
         }
-      }
-    };
-
-    fetchData();
-    const interval = setInterval(fetchData, 30000); // Changed to 30s to reduce noise
-    return () => {
-      isMounted = false;
-      clearInterval(interval);
-    };
+      })
+      .catch((err) => console.error('Failed to fetch machines:', err));
   }, []);
 
+  // Update machine status when new WebSocket message arrives
+  useEffect(() => {
+    if (latestMessage) {
+      setMachines((prev) => {
+        const updated = [...prev];
+        const idx = updated.findIndex(
+          (m) => m.machine_id === latestMessage.machine_id
+        );
+
+        if (idx >= 0) {
+          updated[idx] = {
+            ...updated[idx],
+            failure_probability: latestMessage.failure_probability,
+            last_seen: latestMessage.timestamp,
+            rul_days: latestMessage.rul_days,
+            operational_status: latestMessage.operational_status,
+            recommendation: latestMessage.recommendation,
+            anomaly_detected: latestMessage.anomaly_detected,
+            line_name: latestMessage.line_name,
+            model_number: latestMessage.model_number,
+            install_date: latestMessage.install_date
+          };
+        } else {
+          updated.push({
+            machine_id: latestMessage.machine_id,
+            failure_probability: latestMessage.failure_probability,
+            last_seen: latestMessage.timestamp,
+            rul_days: latestMessage.rul_days,
+            operational_status: latestMessage.operational_status,
+            status: latestMessage.failure_probability > 0.8 ? 'CRITICAL' : 'HEALTHY',
+            line_name: latestMessage.line_name,
+            model_number: latestMessage.model_number,
+            install_date: latestMessage.install_date
+          });
+        }
+
+        return updated;
+      });
+    }
+  }, [latestMessage]);
+
+  // Handle machine selection (switches to detail view)
+  const handleSelectMachine = (machineId) => {
+    setSelectedMachineId(machineId);
+    setView('detail');
+  };
+
+  // Handle back to overview
+  const handleBackToOverview = () => {
+    setSelectedMachineId(null);
+    setView('overview');
+  };
+
+  // Find the selected machine object
+  const selectedMachine = machines.find(m => m.machine_id === selectedMachineId);
+
   return (
-    <Router>
-      <Layout>
-        {isDataLoading && <LoadingOverlay message="Syncing Telemetry..." />}
-        <Routes>
-          <Route path="/" element={<AssetMonitor robots={robotsData} />} />
-          {/* <Route path="/assets" element={<AssetMonitor robots={robotsData} />} /> */}
-          <Route path="/assets/:id" element={
-            <Suspense fallback={<LoadingOverlay message="Loading Asset Context..." />}>
-              <AssetView robots={robotsData} />
-            </Suspense>
-          } />
-          <Route path="/audit" element={
-            <Suspense fallback={<LoadingOverlay message="Auditing Models..." />}>
-              <ModelAudit />
-            </Suspense>
-          } />
-          <Route path="/status" element={
-            <Suspense fallback={<LoadingOverlay message="Connecting to Backend..." />}>
-              <BackendStatus />
-            </Suspense>
-          } />
-          <Route path="*" element={<AssetMonitor robots={robotsData} />} />
-        </Routes>
-      </Layout>
-    </Router>
+    <ThemeProvider theme={theme}>
+      <CssBaseline />
+      <Box sx={{ display: 'flex', minHeight: '100vh', bgcolor: 'background.default' }}>
+        {/* Sidebar Navigation */}
+        <Sidebar
+          machines={machines}
+          selectedMachineId={selectedMachineId}
+          view={view}
+          setView={setView}
+          onSelectMachine={handleSelectMachine}
+        />
+
+        {/* Main Content Area */}
+        <Box component="main" sx={{
+          flexGrow: 1,
+          p: { xs: 2, sm: 3, md: 4 },
+          ml: '240px',
+          maxWidth: 'calc(100vw - 240px)',
+          overflow: 'hidden'
+        }}>
+          {/* Top Bar / Status */}
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 3 }}>
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1,
+                px: 1.5,
+                py: 0.75,
+                borderRadius: 4,
+                bgcolor: isConnected ? 'success.light' : 'error.light', // Using light implementation-ish
+                color: isConnected ? 'success.dark' : 'error.dark',
+                // Note: MUI palette access in sx is direct e.g. 'success.main'. 
+                // Using custom bg colors for now via alpha or theme colors if defined.
+                // Let's use theme.palette directly or correct aliases.
+                // Reverting to hardcoded or close approximates to ensure no build error if theme structure varies.
+                bgcolor: isConnected ? '#d1fae5' : '#fee2e2',
+                color: isConnected ? '#047857' : '#b91c1c'
+              }}
+            >
+              <Box
+                sx={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: '50%',
+                  bgcolor: isConnected ? 'success.main' : 'error.main',
+                  animation: isConnected ? 'pulse 2s infinite' : 'none',
+                  '@keyframes pulse': {
+                    '0%': { boxShadow: '0 0 0 0 rgba(5, 150, 105, 0.7)' },
+                    '70%': { boxShadow: '0 0 0 10px rgba(5, 150, 105, 0)' },
+                    '100%': { boxShadow: '0 0 0 0 rgba(5, 150, 105, 0)' }
+                  }
+                }}
+              />
+              <Typography variant="caption" fontWeight="bold">
+                {isConnected ? 'LIVE' : 'OFFLINE'}
+              </Typography>
+            </Box>
+          </Box>
+
+          {/* View Router */}
+          {view === 'overview' ? (
+            <PlantOverview
+              machines={machines}
+              messages={messages}
+              onSelectMachine={handleSelectMachine}
+            />
+          ) : view === 'anomaly-discovery' ? (
+            <AnomalyDiscoveryPage />
+          ) : selectedMachine ? (
+            <MachineDetail
+              machine={selectedMachine}
+              messages={messages}
+              onBack={handleBackToOverview}
+            />
+          ) : (
+            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '60vh', color: 'text.secondary' }}>
+              <Factory style={{ width: 64, height: 64, marginBottom: 16 }} />
+              <Typography>Waiting for fleet data...</Typography>
+            </Box>
+          )}
+        </Box>
+      </Box>
+    </ThemeProvider>
   );
 }
 

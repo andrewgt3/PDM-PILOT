@@ -1,76 +1,200 @@
-# Python
+# =============================================================================
+# PDM-PILOT .gitignore - Security Hardened
+# =============================================================================
+# CRITICAL: This file protects secrets, large files, and sensitive data
+# from being accidentally committed to the repository.
+# =============================================================================
+
+# =============================================================================
+# 🔐 SECRETS & CREDENTIALS (CRITICAL - NEVER COMMIT THESE)
+# =============================================================================
+.env
+.env.*
+.env.local
+.env.production
+.env.development
+.env.staging
+*.pem
+*.key
+*.crt
+*.p12
+secrets/
+credentials/
+*.secret
+
+# =============================================================================
+# 🐍 PYTHON
+# =============================================================================
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+.virtualenv/
+
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
-env/
-venv/
-ENV/
+
+# Distribution / packaging
 *.egg-info/
 .eggs/
 dist/
 build/
+*.egg
+*.whl
+MANIFEST
 
-# Data files
+# =============================================================================
+# 🧪 TESTING
+# =============================================================================
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+.hypothesis/
+pytest_cache/
+
+# =============================================================================
+# 📊 DATA FILES (Can be large, regenerate as needed)
+# =============================================================================
 *.csv
-*.json
+*.tsv
+*.parquet
+*.feather
+data/
+!data/.gitkeep
+
+# Exceptions for specific config files
 !package.json
 !package-lock.json
 !tsconfig.json
-sensor_data*.csv
-context_logs.csv
-rul_training_data.csv
-insight_report.json
+!vite.config.js
+!pyproject.toml
 
-# Models
+# =============================================================================
+# 🤖 ML MODEL FILES (Large binary files)
+# =============================================================================
 *.pkl
+*.pickle
 *.joblib
-rul_model.json
-rul_model_metadata.json
 *.h5
+*.hdf5
+*.pt
+*.pth
+*.onnx
+*.pb
+*.tflite
+models/
+!models/.gitkeep
 
-# Database
+# =============================================================================
+# 🗄️ DATABASE FILES
+# =============================================================================
 *.db
 *.sqlite
+*.sqlite3
+*.sql.gz
+database/
+db_backups/
 
-# Node
+# =============================================================================
+# 📝 LOG FILES
+# =============================================================================
+*.log
+*.log.*
+logs/
+*.out
+*.err
+nohup.out
+
+# =============================================================================
+# 🔄 BACKUP & RECOVERED FILES
+# =============================================================================
+recovered_api/
+*.backup
+*.bak
+*.old
+*.orig
+*~
+.backup/
+
+# =============================================================================
+# 📦 NODE / FRONTEND
+# =============================================================================
 node_modules/
 .pnp
 .pnp.js
+/frontend/build/
+/frontend/dist/
+/frontend/.vite/
+.next/
+.nuxt/
+.cache/
 
-# Build
-/frontend/build
-/frontend/dist
-/frontend/.vite
+# =============================================================================
+# 🐳 DOCKER
+# =============================================================================
+*.pid
+docker-compose.override.yml
+.docker/
 
-# Logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-logs/
-
-# IDE
+# =============================================================================
+# 💻 IDE & EDITOR
+# =============================================================================
 .vscode/
 .idea/
 *.swp
 *.swo
-*~
+*.sublime-project
+*.sublime-workspace
+.project
+.classpath
+.settings/
+
+# =============================================================================
+# 🖥️ OS SPECIFIC
+# =============================================================================
 .DS_Store
-
-# Environment
-.env
-.env.local
-.env.production
-
-# Docker
-*.pid
-
-# Testing
-.coverage
-htmlcov/
-.pytest_cache/
-
-# OS
+.DS_Store?
+._*
 Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# =============================================================================
+# 🔧 MISC
+# =============================================================================
+*.tmp
+*.temp
+.cache/
+tmp/
+temp/
+
+# =============================================================================
+# 📋 PROJECT-SPECIFIC IGNORES
+# =============================================================================
+# Specific data files
+sensor_data*.csv
+context_logs.csv
+rul_training_data.csv
+fleet_sensor_data.csv
+fleet_events.csv
+insight_report.json
+rul_model.json
+rul_model_metadata.json
+training_data.pkl
+gaia_model.pkl
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Security audit logs (may contain sensitive info)
+security_audit.log

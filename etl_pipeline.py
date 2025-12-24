@@ -10,6 +10,7 @@ Pipeline Steps:
 4. Verification: Validate data integrity and row counts
 """
 
+import os
 import pandas as pd
 import numpy as np
 from sqlalchemy import create_engine, text, MetaData, Table, Column, String, Float, DateTime, Integer
@@ -17,6 +18,9 @@ from sqlalchemy.engine import URL
 from datetime import datetime
 import time
 import warnings
+from dotenv import load_dotenv
+
+load_dotenv()
 warnings.filterwarnings('ignore')
 
 # =============================================================================
@@ -25,12 +29,14 @@ warnings.filterwarnings('ignore')
 
 # Database connection parameters
 DB_CONFIG = {
-    'host': 'localhost',
-    'port': 5432,
-    'database': 'pdm_timeseries',
-    'username': 'postgres',
-    'password': 'password'
+    'host': os.getenv('DB_HOST', 'localhost'),
+    'port': int(os.getenv('DB_PORT', 5432)),
+    'database': os.getenv('DB_NAME', 'pdm_timeseries'),
+    'username': os.getenv('DB_USER', 'postgres'),
+    'password': os.getenv('DB_PASSWORD')
 }
+if not DB_CONFIG['password']:
+    raise ValueError("DB_PASSWORD environment variable is required")
 
 # Data file paths
 SENSOR_DATA_FILE = 'sensor_data_dirty.csv'

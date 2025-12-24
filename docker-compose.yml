@@ -60,19 +60,32 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: pdm-api
-    command: uvicorn services.inference.app.main:app --host 0.0.0.0 --port 8000
+    command: uvicorn api_server:app --host 0.0.0.0 --port 8000 --reload
     ports:
       - "8000:8000"
     environment:
+      # Database connection
+      DATABASE_URL: postgresql://${DT_POSTGRES_USER:-postgres}:${DT_POSTGRES_PASSWORD:-password}@timescaledb:5432/${DT_POSTGRES_DB:-pdm_timeseries}
       DB_HOST: timescaledb
-      DB_NAME: pdm_timeseries
+      DB_NAME: ${DT_POSTGRES_DB:-pdm_timeseries}
       DB_USER: ${DT_POSTGRES_USER:-postgres}
       DB_PASSWORD: ${DT_POSTGRES_PASSWORD:-password}
+      # Redis connection
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
     depends_on:
       timescaledb:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
       - pdm-network
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/api/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   # 5. Frontend Service (React + Python Server)
   frontend:

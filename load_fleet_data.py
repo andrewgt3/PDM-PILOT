@@ -6,12 +6,18 @@ Loads fleet_sensor_data.csv and fleet_events.csv into database.
 Author: PlantAGI Team
 """
 
+import os
 import pandas as pd
 from sqlalchemy import create_engine, text
 from datetime import datetime
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Configuration
-DB_CONNECTION = "postgresql://postgres:password@localhost:5432/pdm_timeseries"
+DB_CONNECTION = os.getenv('DATABASE_URL')
+if not DB_CONNECTION:
+    raise ValueError("DATABASE_URL environment variable is required")
 SENSOR_FILE = "fleet_sensor_data.csv"
 EVENTS_FILE = "fleet_events.csv"
 
