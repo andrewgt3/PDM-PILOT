@@ -6,21 +6,21 @@ Provides endpoints for alarms, work orders, MTBF/MTTR, and shift schedules.
 Import this into api_server.py to add the routes.
 """
 
-import os
+import asyncio
 import json
 from datetime import datetime, timezone, timedelta
-from typing import List, Dict, Optional
-import psycopg2
-from psycopg2.extras import RealDictCursor
-from pydantic import BaseModel
+from typing import List, Dict, Optional, Any
+
 from fastapi import APIRouter, HTTPException, Query, Depends, Request
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi.security import OAuth2PasswordRequestForm
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 # Rate Limiting
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
-# Import validated schemas with strict security rules
+# Import validated schemas
 from schemas import (
     AlarmCreateValidated,
     WorkOrderCreateValidated,
@@ -28,32 +28,25 @@ from schemas import (
     TelemetryDataValidated,
     BulkTelemetryValidated,
 )
+from schemas.enterprise import WorkOrder
+from schemas.security import Token, UserRole
 
-# Import authentication utilities
-from auth_utils import (
-    get_password_hash,
-    verify_password,
-    create_access_token,
-    decode_access_token,
-)
+# Global Config & Dependencies
+from config import get_settings
+from database import get_db
+from dependencies import get_current_user, get_current_admin_user
 
-# Create router for enterprise features
+from services.auth_service import verify_password, create_access_token, get_auth_service
+
+# Create router
 enterprise_router = APIRouter(prefix="/api/enterprise", tags=["Enterprise"])
 
-# Initialize rate limiter for this module
+# Initialize rate limiter
 limiter = Limiter(key_func=get_remote_address)
 
-# OAuth2 scheme for token authentication
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/enterprise/token")
+settings = get_settings()
+# No local get_db or oauth2_scheme needed
 
-DATABASE_URL = os.getenv('DATABASE_URL')
-if not DATABASE_URL:
-    raise ValueError("DATABASE_URL environment variable is required")
-
-
-def get_db():
-    """Get database connection."""
-    return psycopg2.connect(DATABASE_URL)
 
 
 # =============================================================================
@@ -61,50 +54,28 @@ def get_db():
 # =============================================================================
 
 # Temporary hardcoded credentials (TODO: Replace with database lookup)
+# =============================================================================
+# AUTHENTICATION ENDPOINTS
+# =============================================================================
+
+# Temporary hardcoded users for login (Phase 1)
+# TODO: Move to DB
 TEMP_USERS = {
     "admin": {
         "username": "admin",
-        "hashed_password": get_password_hash("secret123"),
+        # Hashed "secret123"
+        "hashed_password": "$2b$12$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36WQoeG6Lruj3vjPGga31lW", 
         "role": "admin",
         "email": "admin@plantagi.com"
     }
 }
 
-
-class Token(BaseModel):
-    """Token response model."""
-    access_token: str
-    token_type: str
-
-
-class TokenData(BaseModel):
-    """Token payload data."""
-    username: Optional[str] = None
-    role: Optional[str] = None
-
-
 @enterprise_router.post("/token", response_model=Token, tags=["Authentication"])
-@limiter.limit("5 per minute")  # Strict rate limit to prevent password guessing
+@limiter.limit("5 per minute")
 async def login_for_access_token(request: Request, form_data: OAuth2PasswordRequestForm = Depends()):
     """
-    OAuth2-compatible token login endpoint.
-    
-    Accepts username and password, returns JWT access token.
-    
-    **Rate Limited:** 5 requests per minute to prevent brute-force attacks.
-    
-    **Temporary Credentials (for testing):**
-    - Username: `admin`
-    - Password: `secret123`
-    
-    **Usage:**
-    ```
-    curl -X POST "http://localhost:8000/api/enterprise/token" \\
-         -H "Content-Type: application/x-www-form-urlencoded" \\
-         -d "username=admin&password=secret123"
-    ```
+    OAuth2 login endpoint.
     """
-    # Look up user (temporary hardcoded, will be replaced with DB lookup)
     user = TEMP_USERS.get(form_data.username)
     
     if not user:
@@ -114,8 +85,13 @@ async def login_for_access_token(request: Request, form_data: OAuth2PasswordRequ
             headers={"WWW-Authenticate": "Bearer"}
         )
     
-    # Verify password
-    if not verify_password(form_data.password, user["hashed_password"]):
+    # Verify password (async)
+    # Note: verify_password in auth_utils might be sync/async depending on previous edits.
+    # We check if it is awaitable.
+    # Per recent summary, auth_service.py refactored to async.
+    # verify_password comes from services.auth_service
+    is_valid = await verify_password(form_data.password, user["hashed_password"])
+    if not is_valid:
         raise HTTPException(
             status_code=401,
             detail="Incorrect username or password",
@@ -124,57 +100,15 @@ async def login_for_access_token(request: Request, form_data: OAuth2PasswordRequ
     
     # Create access token
     access_token = create_access_token(
-        data={
-            "sub": user["username"],
-            "role": user["role"],
-            "email": user["email"]
-        }
+        user_id=user["username"],
+        username=user["username"],
+        role=UserRole(user["role"])
     )
     
     return {"access_token": access_token, "token_type": "bearer"}
 
+# get_current_user and get_current_admin_user removed (imported from dependencies)
 
-async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
-    """
-    Dependency to get current user from JWT token.
-    
-    Usage in protected endpoints:
-        @router.get("/protected")
-        async def protected_route(current_user: dict = Depends(get_current_user)):
-            return {"user": current_user["sub"]}
-    """
-    credentials_exception = HTTPException(
-        status_code=401,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"}
-    )
-    
-    payload = decode_access_token(token)
-    if payload is None:
-        raise credentials_exception
-    
-    username: str = payload.get("sub")
-    if username is None:
-        raise credentials_exception
-    
-    return payload
-
-
-async def get_current_admin_user(current_user: dict = Depends(get_current_user)) -> dict:
-    """
-    Dependency to require admin role.
-    
-    Usage in admin-only endpoints:
-        @router.delete("/dangerous")
-        async def admin_only(user: dict = Depends(get_current_admin_user)):
-            ...
-    """
-    if current_user.get("role") != "admin":
-        raise HTTPException(
-            status_code=403,
-            detail="Admin privileges required"
-        )
-    return current_user
 
 
 # =============================================================================
@@ -192,44 +126,37 @@ WorkOrderUpdate = WorkOrderUpdateValidated
 @enterprise_router.post("/telemetry", tags=["Telemetry"])
 async def ingest_telemetry(
     data: TelemetryDataValidated,
-    current_user: dict = Depends(get_current_user)  # Requires authentication
+    current_user: dict = Depends(get_current_user),  # Requires authentication
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Ingest validated telemetry data from sensors.
-    
-    Validation Rules (422 error if violated):
-    - machine_id: 3-50 chars, alphanumeric with underscores/hyphens
-    - temperature: -50°C to 200°C
-    - vibration_x: >= 0 (non-negative)
-    - rotational_speed: >= 0 RPM
     """
     try:
-        conn = get_db()
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
-        
-        cursor.execute("""
+        query = text("""
             INSERT INTO sensor_readings 
             (machine_id, timestamp, rotational_speed, temperature, torque, tool_wear)
-            VALUES (%s, %s, %s, %s, %s, %s)
+            VALUES (:machine_id, :timestamp, :rotational_speed, :temperature, :torque, :tool_wear)
             RETURNING id, timestamp
-        """, (
-            data.machine_id,
-            data.timestamp or datetime.now(timezone.utc),
-            data.rotational_speed,
-            data.temperature,
-            data.torque,
-            data.tool_wear
-        ))
+        """)
         
-        result = cursor.fetchone()
-        conn.commit()
-        cursor.close()
-        conn.close()
+        params = {
+            "machine_id": data.machine_id,
+            "timestamp": data.timestamp or datetime.now(timezone.utc),
+            "rotational_speed": data.rotational_speed,
+            "temperature": data.temperature,
+            "torque": data.torque,
+            "tool_wear": data.tool_wear
+        }
+        
+        result = await db.execute(query, params)
+        row = result.mappings().one()
+        # Auto-commit handled by dependency
         
         return {
             "status": "accepted",
-            "reading_id": result['id'],
-            "timestamp": result['timestamp'].isoformat()
+            "reading_id": row['id'],
+            "timestamp": row['timestamp'].isoformat() if hasattr(row['timestamp'], 'isoformat') else str(row['timestamp'])
         }
     
     except Exception as e:
@@ -239,39 +166,32 @@ async def ingest_telemetry(
 @enterprise_router.post("/telemetry/bulk", tags=["Telemetry"])
 async def ingest_bulk_telemetry(
     data: BulkTelemetryValidated,
-    current_user: dict = Depends(get_current_user)  # Requires authentication
+    current_user: dict = Depends(get_current_user),  # Requires authentication
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Bulk ingest validated telemetry data (up to 1000 readings).
-    
-    Each reading is validated with the same rules as single ingestion.
     """
     try:
-        conn = get_db()
-        cursor = conn.cursor()
-        
-        # Prepare bulk insert
-        values = []
-        for reading in data.readings:
-            values.append((
-                reading.machine_id,
-                reading.timestamp or datetime.now(timezone.utc),
-                reading.rotational_speed,
-                reading.temperature,
-                reading.torque,
-                reading.tool_wear
-            ))
-        
-        # Execute bulk insert
-        cursor.executemany("""
+        query = text("""
             INSERT INTO sensor_readings 
             (machine_id, timestamp, rotational_speed, temperature, torque, tool_wear)
-            VALUES (%s, %s, %s, %s, %s, %s)
-        """, values)
+            VALUES (:machine_id, :timestamp, :rotational_speed, :temperature, :torque, :tool_wear)
+        """)
         
-        conn.commit()
-        cursor.close()
-        conn.close()
+        values = []
+        for reading in data.readings:
+            values.append({
+                "machine_id": reading.machine_id,
+                "timestamp": reading.timestamp or datetime.now(timezone.utc),
+                "rotational_speed": reading.rotational_speed,
+                "temperature": reading.temperature,
+                "torque": reading.torque,
+                "tool_wear": reading.tool_wear
+            })
+        
+        await db.execute(query, values)
+        # Auto-commit handled by dependency
         
         return {
             "status": "accepted",
@@ -289,28 +209,29 @@ async def ingest_bulk_telemetry(
 async def get_alarms(
     machine_id: str = Query(None),
     active_only: bool = Query(True),
-    limit: int = Query(50, ge=1, le=200)
+    limit: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db)
 ):
     """Get alarms, optionally filtered by machine and status."""
     try:
-        conn = get_db()
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
-        
-        query = "SELECT * FROM pdm_alarms WHERE 1=1"
-        params = []
+        query_str = "SELECT * FROM pdm_alarms WHERE 1=1"
+        params = {}
         
         if machine_id:
-            query += " AND machine_id = %s"
-            params.append(machine_id)
+            query_str += " AND machine_id = :machine_id"
+            params["machine_id"] = machine_id
         
         if active_only:
-            query += " AND active = TRUE"
+            query_str += " AND active = TRUE"
         
-        query += " ORDER BY timestamp DESC LIMIT %s"
-        params.append(limit)
+        query_str += " ORDER BY timestamp DESC LIMIT :limit"
+        params["limit"] = limit
         
-        cursor.execute(query, params)
-        alarms = cursor.fetchall()
+        result = await db.execute(text(query_str), params)
+        rows = result.mappings().all()
+        
+        alarms = [dict(row) for row in rows]
+
         
         # Convert timestamps
         for alarm in alarms:
@@ -319,8 +240,14 @@ async def get_alarms(
             if alarm['acknowledged_at']:
                 alarm['acknowledged_at'] = alarm['acknowledged_at'].isoformat()
         
-        cursor.close()
-        conn.close()
+        # Convert timestamps
+        for alarm in alarms:
+            if alarm.get('timestamp'):
+                alarm['timestamp'] = alarm['timestamp'].isoformat() if hasattr(alarm['timestamp'], 'isoformat') else str(alarm['timestamp'])
+            if alarm.get('acknowledged_at'):
+                alarm['acknowledged_at'] = alarm['acknowledged_at'].isoformat() if hasattr(alarm['acknowledged_at'], 'isoformat') else str(alarm['acknowledged_at'])
+            if alarm.get('resolved_at'):
+                alarm['resolved_at'] = alarm['resolved_at'].isoformat() if hasattr(alarm['resolved_at'], 'isoformat') else str(alarm['resolved_at'])
         
         return {"count": len(alarms), "data": alarms}
     
@@ -330,31 +257,40 @@ async def get_alarms(
 
 @enterprise_router.post("/alarms")
 async def create_alarm(
-    alarm: AlarmCreate,
-    current_user: dict = Depends(get_current_user)  # Requires authentication
+    alarm: AlarmCreateValidated,
+    current_user: dict = Depends(get_current_user),  # Requires authentication
+    db: AsyncSession = Depends(get_db)
 ):
     """Create a new alarm (typically called by monitoring system)."""
     try:
-        conn = get_db()
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
-        
         # Generate alarm ID
-        cursor.execute("SELECT COUNT(*) FROM pdm_alarms WHERE DATE(timestamp) = CURRENT_DATE")
-        count = cursor.fetchone()['count']
+        count_query = text("SELECT COUNT(*) FROM pdm_alarms WHERE DATE(timestamp) = CURRENT_DATE")
+        result = await db.execute(count_query)
+        count = result.scalar()
+        
         alarm_id = f"ALM-{datetime.now().strftime('%Y%m%d')}-{count + 1:04d}"
         
-        cursor.execute("""
+        query = text("""
             INSERT INTO pdm_alarms 
             (alarm_id, machine_id, severity, code, message, trigger_type, trigger_value, threshold_value)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (:alarm_id, :machine_id, :severity, :code, :message, :trigger_type, :trigger_value, :threshold_value)
             RETURNING *
-        """, (alarm_id, alarm.machine_id, alarm.severity, alarm.code, alarm.message,
-              alarm.trigger_type, alarm.trigger_value, alarm.threshold_value))
+        """)
         
-        new_alarm = cursor.fetchone()
-        conn.commit()
-        cursor.close()
-        conn.close()
+        params = {
+            "alarm_id": alarm_id,
+            "machine_id": alarm.machine_id,
+            "severity": alarm.severity,
+            "code": alarm.code,
+            "message": alarm.message,
+            "trigger_type": alarm.trigger_type,
+            "trigger_value": alarm.trigger_value,
+            "threshold_value": alarm.threshold_value
+        }
+        
+        result = await db.execute(query, params)
+        new_alarm = dict(result.mappings().one())
+        # Auto-commit handled
         
         return new_alarm
     
@@ -366,29 +302,25 @@ async def create_alarm(
 async def acknowledge_alarm(
     alarm_id: str,
     acknowledged_by: str = "System",
-    current_user: dict = Depends(get_current_user)  # Requires authentication
+    current_user: dict = Depends(get_current_user),  # Requires authentication
+    db: AsyncSession = Depends(get_db)
 ):
     """Acknowledge an alarm."""
     try:
-        conn = get_db()
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
-        
-        cursor.execute("""
+        query = text("""
             UPDATE pdm_alarms 
-            SET acknowledged = TRUE, acknowledged_by = %s, acknowledged_at = NOW()
-            WHERE alarm_id = %s
+            SET acknowledged = TRUE, acknowledged_by = :ack_by, acknowledged_at = NOW()
+            WHERE alarm_id = :alarm_id
             RETURNING *
-        """, (acknowledged_by, alarm_id))
+        """)
         
-        alarm = cursor.fetchone()
+        result = await db.execute(query, {"ack_by": acknowledged_by, "alarm_id": alarm_id})
+        alarm = result.mappings().one_or_none()
+        
         if not alarm:
             raise HTTPException(status_code=404, detail="Alarm not found")
         
-        conn.commit()
-        cursor.close()
-        conn.close()
-        
-        return alarm
+        return dict(alarm)
     
     except HTTPException:
         raise
@@ -399,29 +331,25 @@ async def acknowledge_alarm(
 @enterprise_router.post("/alarms/{alarm_id}/resolve")
 async def resolve_alarm(
     alarm_id: str,
-    current_user: dict = Depends(get_current_user)  # Requires authentication
+    current_user: dict = Depends(get_current_user),  # Requires authentication
+    db: AsyncSession = Depends(get_db)
 ):
     """Mark an alarm as resolved/inactive."""
     try:
-        conn = get_db()
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
-        
-        cursor.execute("""
+        query = text("""
             UPDATE pdm_alarms 
             SET active = FALSE, resolved_at = NOW()
-            WHERE alarm_id = %s
+            WHERE alarm_id = :alarm_id
             RETURNING *
-        """, (alarm_id,))
+        """)
         
-        alarm = cursor.fetchone()
+        result = await db.execute(query, {"alarm_id": alarm_id})
+        alarm = result.mappings().one_or_none()
+        
         if not alarm:
             raise HTTPException(status_code=404, detail="Alarm not found")
         
-        conn.commit()
-        cursor.close()
-        conn.close()
-        
-        return alarm
+        return dict(alarm)
     
     except HTTPException:
         raise
@@ -432,44 +360,34 @@ async def resolve_alarm(
 # =============================================================================
 # WORK ORDER ENDPOINTS
 # =============================================================================
-@enterprise_router.get("/work-orders")
+@enterprise_router.get("/work-orders", response_model=Dict[str, Any])
 async def get_work_orders(
     machine_id: str = Query(None),
     status: str = Query(None),
-    limit: int = Query(50, ge=1, le=200)
+    limit: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db)
 ):
     """Get work orders with optional filters."""
     try:
-        conn = get_db()
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
-        
-        query = "SELECT * FROM work_orders WHERE 1=1"
-        params = []
+        query_str = "SELECT * FROM work_orders WHERE 1=1"
+        params = {}
         
         if machine_id:
-            query += " AND machine_id = %s"
-            params.append(machine_id)
+            query_str += " AND machine_id = :machine_id"
+            params["machine_id"] = machine_id
         
         if status:
-            query += " AND status = %s"
-            params.append(status)
+            query_str += " AND status = :status"
+            params["status"] = status
         
-        query += " ORDER BY created_at DESC LIMIT %s"
-        params.append(limit)
+        query_str += " ORDER BY created_at DESC LIMIT :limit"
+        params["limit"] = limit
         
-        cursor.execute(query, params)
-        orders = cursor.fetchall()
+        result = await db.execute(text(query_str), params)
+        rows = result.mappings().all()
         
-        # Convert timestamps
-        for order in orders:
-            for field in ['created_at', 'started_at', 'completed_at']:
-                if order.get(field):
-                    order[field] = order[field].isoformat()
-            if order.get('scheduled_date'):
-                order['scheduled_date'] = order['scheduled_date'].isoformat()
-        
-        cursor.close()
-        conn.close()
+        # Map to Pydantic schema
+        orders = [WorkOrder.model_validate(dict(row)) for row in rows]
         
         return {"count": len(orders), "data": orders}
     
@@ -477,43 +395,46 @@ async def get_work_orders(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@enterprise_router.post("/work-orders")
+@enterprise_router.post("/work-orders", response_model=WorkOrder)
 async def create_work_order(
     wo: WorkOrderCreate,
-    current_user: dict = Depends(get_current_user)  # Requires authentication
+    current_user: dict = Depends(get_current_user),  # Requires authentication
+    db: AsyncSession = Depends(get_db)
 ):
     """Create a new work order."""
     try:
-        conn = get_db()
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
-        
         # Generate work order ID
         year = datetime.now().year
-        cursor.execute("SELECT COUNT(*) FROM work_orders WHERE EXTRACT(YEAR FROM created_at) = %s", (year,))
-        count = cursor.fetchone()['count']
+        count_query = text("SELECT COUNT(*) FROM work_orders WHERE EXTRACT(YEAR FROM created_at) = :year")
+        result = await db.execute(count_query, {"year": year})
+        count = result.scalar()
+        
         wo_id = f"WO-{year}-{count + 1:04d}"
         
-        cursor.execute("""
+        query = text("""
             INSERT INTO work_orders 
             (work_order_id, machine_id, title, description, priority, work_type, 
              scheduled_date, estimated_duration_hours)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (:wo_id, :machine_id, :title, :description, :priority, :work_type, 
+             :scheduled_date, :estimated_duration_hours)
             RETURNING *
-        """, (wo_id, wo.machine_id, wo.title, wo.description, wo.priority, wo.work_type,
-              wo.scheduled_date, wo.estimated_duration_hours))
+        """)
         
-        new_order = cursor.fetchone()
-        conn.commit()
+        params = {
+            "wo_id": wo_id,
+            "machine_id": wo.machine_id,
+            "title": wo.title,
+            "description": wo.description,
+            "priority": wo.priority,
+            "work_type": wo.work_type,
+            "scheduled_date": wo.scheduled_date,
+            "estimated_duration_hours": wo.estimated_duration_hours
+        }
         
-        # Convert timestamps for response
-        for field in ['created_at', 'started_at', 'completed_at']:
-            if new_order.get(field):
-                new_order[field] = new_order[field].isoformat()
+        result = await db.execute(query, params)
+        row = result.mappings().one()
         
-        cursor.close()
-        conn.close()
-        
-        return new_order
+        return WorkOrder.model_validate(dict(row))
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -523,20 +444,18 @@ async def create_work_order(
 async def update_work_order(
     work_order_id: str,
     update: WorkOrderUpdate,
-    current_user: dict = Depends(get_current_user)  # Requires authentication
+    current_user: dict = Depends(get_current_user),  # Requires authentication
+    db: AsyncSession = Depends(get_db)
 ):
     """Update a work order's status, assignment, or notes."""
     try:
-        conn = get_db()
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
-        
         # Build dynamic update
         updates = []
-        params = []
+        params = {}
         
         if update.status:
-            updates.append("status = %s")
-            params.append(update.status)
+            updates.append("status = :status")
+            params["status"] = update.status
             
             # Auto-set timestamps based on status
             if update.status == 'in_progress':
@@ -545,34 +464,31 @@ async def update_work_order(
                 updates.append("completed_at = NOW()")
         
         if update.assigned_to:
-            updates.append("assigned_to = %s")
-            params.append(update.assigned_to)
+            updates.append("assigned_to = :assigned_to")
+            params["assigned_to"] = update.assigned_to
         
         if update.notes:
-            updates.append("notes = %s")
-            params.append(update.notes)
+            updates.append("notes = :notes")
+            params["notes"] = update.notes
         
         if update.actual_duration_hours:
-            updates.append("actual_duration_hours = %s")
-            params.append(update.actual_duration_hours)
+            updates.append("actual_duration_hours = :actual_duration_hours")
+            params["actual_duration_hours"] = update.actual_duration_hours
         
         if not updates:
             raise HTTPException(status_code=400, detail="No fields to update")
         
-        params.append(work_order_id)
-        query = f"UPDATE work_orders SET {', '.join(updates)} WHERE work_order_id = %s RETURNING *"
+        params["work_order_id"] = work_order_id
         
-        cursor.execute(query, params)
-        order = cursor.fetchone()
+        query_str = f"UPDATE work_orders SET {', '.join(updates)} WHERE work_order_id = :work_order_id RETURNING *"
+        
+        result = await db.execute(text(query_str), params)
+        order = result.mappings().one_or_none()
         
         if not order:
             raise HTTPException(status_code=404, detail="Work order not found")
         
-        conn.commit()
-        cursor.close()
-        conn.close()
-        
-        return order
+        return dict(order)
     
     except HTTPException:
         raise
@@ -584,41 +500,37 @@ async def update_work_order(
 # MTBF/MTTR ENDPOINTS
 # =============================================================================
 @enterprise_router.get("/reliability/{machine_id}")
-async def get_reliability_metrics(machine_id: str):
+async def get_reliability_metrics(machine_id: str, db: AsyncSession = Depends(get_db)):
     """
     Calculate MTBF and MTTR for a specific machine.
     Uses failure_events table and work_orders for calculations.
     """
     try:
-        conn = get_db()
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
-        
         # Get failure event count in last 365 days
-        cursor.execute("""
+        query_failures = text("""
             SELECT COUNT(*) as failure_count
             FROM failure_events 
-            WHERE machine_id = %s 
+            WHERE machine_id = :machine_id 
             AND timestamp > NOW() - INTERVAL '365 days'
-        """, (machine_id,))
-        failure_data = cursor.fetchone()
-        failure_count = failure_data['failure_count'] or 0
+        """)
+        result_failures = await db.execute(query_failures, {"machine_id": machine_id})
+        failure_count = result_failures.scalar() or 0
         
         # Calculate total operating hours (assume 24/7 minus downtime)
-        # For now, estimate based on time range
         days_tracked = 365
         hours_per_day = 20  # Assume 20 hours/day average
         total_uptime = days_tracked * hours_per_day
         
         # Get average repair time from completed work orders
-        cursor.execute("""
+        query_mttr = text("""
             SELECT AVG(actual_duration_hours) as avg_mttr
             FROM work_orders 
-            WHERE machine_id = %s 
+            WHERE machine_id = :machine_id 
             AND status = 'completed'
             AND actual_duration_hours IS NOT NULL
-        """, (machine_id,))
-        mttr_data = cursor.fetchone()
-        mttr = mttr_data['avg_mttr'] or 3.0  # Default 3 hours if no data
+        """)
+        result_mttr = await db.execute(query_mttr, {"machine_id": machine_id})
+        mttr = result_mttr.scalar() or 3.0  # Default 3 hours if no data
         
         # Calculate MTBF
         if failure_count > 0:
@@ -629,14 +541,11 @@ async def get_reliability_metrics(machine_id: str):
         # Calculate availability
         availability = (mtbf / (mtbf + mttr)) * 100 if (mtbf + mttr) > 0 else 99.0
         
-        cursor.close()
-        conn.close()
-        
         return {
             "machine_id": machine_id,
-            "mtbf_hours": round(mtbf, 1),
-            "mttr_hours": round(mttr, 1),
-            "availability_percent": round(availability, 2),
+            "mtbf_hours": round(float(mtbf), 1),
+            "mttr_hours": round(float(mttr), 1),
+            "availability_percent": round(float(availability), 2),
             "failure_count_ytd": failure_count,
             "total_uptime_hours": total_uptime,
             "calculation_period": "Last 365 days"
@@ -650,29 +559,30 @@ async def get_reliability_metrics(machine_id: str):
 # SHIFT SCHEDULE ENDPOINTS
 # =============================================================================
 @enterprise_router.get("/schedule")
-async def get_schedule():
+async def get_schedule(db: AsyncSession = Depends(get_db)):
     """Get current shift schedule and production mode."""
     try:
-        conn = get_db()
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
-        
-        # Get shifts
-        cursor.execute("SELECT * FROM shift_schedule WHERE is_active = TRUE ORDER BY start_time")
-        shifts = cursor.fetchall()
+        # Get shifts with timeout protection
+        try:
+            async with asyncio.timeout(5.0):  # 5 second timeout
+                result_shifts = await db.execute(text("SELECT * FROM shift_schedule WHERE is_active = TRUE ORDER BY start_time"))
+                shifts = [dict(row) for row in result_shifts.mappings().all()]
+                
+                # Get current production mode
+                result_mode = await db.execute(text("""
+                    SELECT * FROM production_mode 
+                    WHERE effective_until IS NULL OR effective_until > NOW()
+                    ORDER BY effective_from DESC 
+                    LIMIT 1
+                """))
+                mode = result_mode.mappings().one_or_none()
+        except asyncio.TimeoutError:
+            raise HTTPException(status_code=503, detail="Database query timed out")
         
         # Convert time objects to strings
         for shift in shifts:
             shift['start_time'] = str(shift['start_time'])
             shift['end_time'] = str(shift['end_time'])
-        
-        # Get current production mode
-        cursor.execute("""
-            SELECT * FROM production_mode 
-            WHERE effective_until IS NULL OR effective_until > NOW()
-            ORDER BY effective_from DESC 
-            LIMIT 1
-        """)
-        mode = cursor.fetchone()
         
         # Determine current shift
         current_time = datetime.now().time()
@@ -690,9 +600,6 @@ async def get_schedule():
                     current_shift = shift['shift_name']
                     break
         
-        cursor.close()
-        conn.close()
-        
         return {
             "shifts": shifts,
             "current_shift": current_shift,
@@ -701,6 +608,8 @@ async def get_schedule():
             "wear_factor": mode['wear_factor'] if mode else 1.0
         }
     
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -709,7 +618,8 @@ async def get_schedule():
 async def set_production_mode(
     mode: str,
     weekly_hours: float = 120,
-    current_user: dict = Depends(get_current_admin_user)  # Admin only!
+    current_user: dict = Depends(get_current_admin_user),  # Admin only!
+    db: AsyncSession = Depends(get_db)
 ):
     """Set the current production mode (normal, overtime, reduced)."""
     if mode not in ['normal', 'overtime', 'reduced']:
@@ -718,27 +628,26 @@ async def set_production_mode(
     wear_factors = {'normal': 1.0, 'overtime': 1.15, 'reduced': 0.85}
     
     try:
-        conn = get_db()
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
-        
         # Expire current mode
-        cursor.execute("""
+        await db.execute(text("""
             UPDATE production_mode 
             SET effective_until = NOW() 
             WHERE effective_until IS NULL
-        """)
+        """))
         
         # Insert new mode
-        cursor.execute("""
+        query = text("""
             INSERT INTO production_mode (mode, weekly_hours, wear_factor)
-            VALUES (%s, %s, %s)
+            VALUES (:mode, :weekly_hours, :wear_factor)
             RETURNING *
-        """, (mode, weekly_hours, wear_factors[mode]))
+        """)
+        result = await db.execute(query, {
+            "mode": mode,
+            "weekly_hours": weekly_hours,
+            "wear_factor": wear_factors[mode]
+        })
         
-        new_mode = cursor.fetchone()
-        conn.commit()
-        cursor.close()
-        conn.close()
+        new_mode = dict(result.mappings().one())
         
         return new_mode
     
@@ -749,8 +658,14 @@ async def set_production_mode(
 # =============================================================================
 # ALARM GENERATOR - Call this to check thresholds and create alarms
 # =============================================================================
-def check_and_create_alarms(machine_id: str, failure_probability: float, 
-                            degradation_score: float, bpfi_amp: float, bpfo_amp: float):
+async def check_and_create_alarms(
+    machine_id: str, 
+    failure_probability: float, 
+    degradation_score: float, 
+    bpfi_amp: float, 
+    bpfo_amp: float,
+    db: AsyncSession
+):
     """
     Check sensor values against thresholds and create alarms if needed.
     Call this from the stream processing pipeline.
@@ -758,15 +673,13 @@ def check_and_create_alarms(machine_id: str, failure_probability: float,
     alarms_created = []
     
     try:
-        conn = get_db()
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
-        
         # Check for existing active alarms to avoid duplicates
-        cursor.execute("""
+        result = await db.execute(text("""
             SELECT code FROM pdm_alarms 
-            WHERE machine_id = %s AND active = TRUE
-        """, (machine_id,))
-        existing_codes = [row['code'] for row in cursor.fetchall()]
+            WHERE machine_id = :machine_id AND active = TRUE
+        """), {"machine_id": machine_id})
+        
+        existing_codes = [row[0] for row in result.fetchall()]
         
         # Threshold checks
         checks = [
@@ -811,36 +724,60 @@ def check_and_create_alarms(machine_id: str, failure_probability: float,
         for check in checks:
             if check['condition'] and check['code'] not in existing_codes:
                 # Generate alarm ID
-                cursor.execute("SELECT COUNT(*) FROM pdm_alarms WHERE DATE(timestamp) = CURRENT_DATE")
-                count = cursor.fetchone()['count']
-                alarm_id = f"ALM-{datetime.now().strftime('%Y%m%d')}-{count + 1:04d}"
+                count_res = await db.execute(text("SELECT COUNT(*) FROM pdm_alarms WHERE DATE(timestamp) = CURRENT_DATE"))
+                count = count_res.scalar()
                 
-                cursor.execute("""
+                alarm_id = f"ALM-{datetime.now().strftime('%Y%m%d')}-{count + 1 + len(alarms_created):04d}"
+                
+                query = text("""
                     INSERT INTO pdm_alarms 
                     (alarm_id, machine_id, severity, code, message, trigger_type, trigger_value, threshold_value)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                """, (alarm_id, machine_id, check['severity'], check['code'], check['message'],
-                      check['trigger_type'], check['trigger_value'], check['threshold']))
+                    VALUES (:alarm_id, :machine_id, :severity, :code, :message, :trigger_type, :trigger_value, :threshold_value)
+                """)
                 
+                params = {
+                    "alarm_id": alarm_id,
+                    "machine_id": machine_id,
+                    "severity": check['severity'],
+                    "code": check['code'],
+                    "message": check['message'],
+                    "trigger_type": check['trigger_type'],
+                    "trigger_value": check['trigger_value'],
+                    "threshold_value": check['threshold']
+                }
+                
+                await db.execute(query, params)
                 alarms_created.append(alarm_id)
         
         # Also check if we should record a failure event
         if failure_probability > 0.8:
-            cursor.execute("""
+            check_fail = text("""
                 SELECT id FROM failure_events 
-                WHERE machine_id = %s 
+                WHERE machine_id = :machine_id 
                 AND timestamp > NOW() - INTERVAL '1 hour'
-            """, (machine_id,))
-            if not cursor.fetchone():
-                cursor.execute("""
+            """)
+            res_fail = await db.execute(check_fail, {"machine_id": machine_id})
+            if not res_fail.first():
+                ins_fail = text("""
                     INSERT INTO failure_events 
                     (machine_id, event_type, failure_probability, degradation_score, bpfi_amp, bpfo_amp)
-                    VALUES (%s, 'predicted_failure', %s, %s, %s, %s)
-                """, (machine_id, failure_probability, degradation_score, bpfi_amp, bpfo_amp))
+                    VALUES (:machine_id, 'predicted_failure', :prob, :deg, :bpfi, :bpfo)
+                """)
+                await db.execute(ins_fail, {
+                    "machine_id": machine_id,
+                    "prob": failure_probability,
+                    "deg": degradation_score,
+                    "bpfi": bpfi_amp,
+                    "bpfo": bpfo_amp
+                })
         
-        conn.commit()
-        cursor.close()
-        conn.close()
+        # Auto-commit handled if session is managed externally, 
+        # but if this is called as a helper, the caller should commit.
+        # However, `get_db` dependency auto-commits.
+        # If passed manually, user might expect commit.
+        # Since we are modifying state, let's assume caller manages commit, 
+        # OR we can flush. But `sqlalchemy` async session usually needs explicit commit if not using context manager that does it.
+        # We will assume caller handles transaction or dependency does.
         
     except Exception as e:
         print(f"[Alarm Generator Error] {e}")

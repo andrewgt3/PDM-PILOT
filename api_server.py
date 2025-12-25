@@ -13,48 +13,58 @@ Endpoints:
 Author: Senior Backend Engineer
 """
 
-import os
-import json
 import asyncio
-import uuid
+import json
 import traceback
-from datetime import datetime, timezone
-from typing import List, Dict, Optional
+import uuid
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
+from typing import Dict, List, Optional
 
-import numpy as np
-import pandas as pd
 import joblib
+import numpy as np
 import redis.asyncio as aioredis
-import psycopg2
-from psycopg2.extras import RealDictCursor
-from dotenv import load_dotenv
-
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query, HTTPException, Request
+from fastapi import (
+    Depends,
+    FastAPI,
+    HTTPException,
+    Query,
+    Request,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi import BackgroundTasks
+from starlette.concurrency import run_in_threadpool
+import analytics_engine
 from pydantic import BaseModel
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
+
+# Use centralized configuration
+from config import get_settings
+from database import check_database_health, get_db, init_database, shutdown_database
+from dependencies import get_current_user
+from schemas.response import APIResponse, ORJSONResponse
+from auth_utils import decode_access_token
 
 # Rate Limiting
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
-# Load environment variables
-load_dotenv()
-
-# Import custom modules
-from advanced_features import SignalProcessor, SAMPLE_RATE, N_SAMPLES
-
+# Load settings
+settings = get_settings()
 
 # =============================================================================
 # CONFIGURATION
 # =============================================================================
-REDIS_HOST = os.getenv('REDIS_HOST', 'localhost')
-REDIS_PORT = int(os.getenv('REDIS_PORT', 6379))
+REDIS_HOST = settings.redis.host
+REDIS_PORT = settings.redis.port
 REDIS_CHANNEL = 'sensor_stream'
 
-DATABASE_URL = os.getenv('DATABASE_URL', None)
+# DATABASE_URL is now managed by database.py via settings
 
 # =============================================================================
 # EQUIPMENT METADATA LOOKUP
@@ -113,12 +123,18 @@ state = AppState()
 # =============================================================================
 # LIFESPAN (Startup/Shutdown)
 # =============================================================================
+# =============================================================================
+# LIFESPAN (Startup/Shutdown)
+# =============================================================================
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize resources on startup, cleanup on shutdown."""
     print("=" * 60)
     print("GAIA API SERVER - Starting...")
     print("=" * 60)
+    
+    # Initialize Database
+    await init_database()
     
     # Connect to Redis
     try:
@@ -157,6 +173,7 @@ async def lifespan(app: FastAPI):
     
     # Cleanup
     print("\nShutting down...")
+    await shutdown_database()
     if state.redis:
         await state.redis.close()
 
@@ -168,11 +185,33 @@ async def lifespan(app: FastAPI):
 # Initialize Rate Limiter
 limiter = Limiter(key_func=get_remote_address, default_limits=["100 per minute"])
 
+# Implement strict Global Auth with exceptions
+from dependencies import get_optional_user
+from schemas.security import User
+
+async def verify_global_auth(request: Request, user: Optional[User] = Depends(get_optional_user)):
+    """
+    Enforce authentication globally with specific exceptions.
+    """
+    # Public endpoints
+    if request.url.path in ["/health", "/docs", "/redoc", "/openapi.json"]:
+        return
+
+    # WebSocket handshake usually doesn't have headers, handled separately or needs query param auth
+    # For now, excluding it or letting it fail if using standard headers
+    if request.url.path == "/ws/stream":
+        return 
+
+    if not user:
+         raise HTTPException(status_code=401, detail="Not authenticated")
+
 app = FastAPI(
     title="GAIA Predictive Maintenance API",
     description="Real-time WebSocket streaming and REST API for Industrial IoT predictive maintenance.",
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
+    default_response_class=ORJSONResponse,
+    dependencies=[Depends(verify_global_auth)],
 )
 
 # Attach limiter to app state
@@ -293,123 +332,29 @@ class MachineStatus(BaseModel):
 # =============================================================================
 # DATABASE HELPER
 # =============================================================================
-def get_db_connection():
-    """Create PostgreSQL connection."""
-    if not DATABASE_URL:
-        raise Exception("Database not configured")
-    return psycopg2.connect(DATABASE_URL)
+# Legacy cleanup
+# get_db_connection removed in favor of explicit get_db dependency
 
 
-def query_features(limit: int = 100, machine_id: str = None) -> List[Dict]:
-    """Query cwru_features table."""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
-        
-        if machine_id:
-            query = """
-                SELECT 
-                    timestamp, machine_id,
-                    peak_freq_1, peak_freq_2, peak_freq_3, peak_freq_4, peak_freq_5,
-                    peak_amp_1, peak_amp_2, peak_amp_3, peak_amp_4, peak_amp_5,
-                    low_band_power, mid_band_power, high_band_power,
-                    spectral_entropy, spectral_kurtosis, total_power,
-                    bpfo_amp, bpfi_amp, bsf_amp, ftf_amp, sideband_strength,
-                    degradation_score, degradation_score_smoothed,
-                    rotational_speed, temperature, torque, tool_wear,
-                    failure_prediction, failure_class
-                FROM cwru_features
-                WHERE machine_id = %s
-                ORDER BY timestamp DESC
-                LIMIT %s
-            """
-            cursor.execute(query, (machine_id, limit))
-        else:
-            query = """
-                SELECT 
-                    timestamp, machine_id,
-                    peak_freq_1, peak_freq_2, peak_freq_3, peak_freq_4, peak_freq_5,
-                    peak_amp_1, peak_amp_2, peak_amp_3, peak_amp_4, peak_amp_5,
-                    low_band_power, mid_band_power, high_band_power,
-                    spectral_entropy, spectral_kurtosis, total_power,
-                    bpfo_amp, bpfi_amp, bsf_amp, ftf_amp, sideband_strength,
-                    degradation_score, degradation_score_smoothed,
-                    rotational_speed, temperature, torque, tool_wear,
-                    failure_prediction, failure_class
-                FROM cwru_features
-                ORDER BY timestamp DESC
-                LIMIT %s
-            """
-            cursor.execute(query, (limit,))
-        
-        rows = cursor.fetchall()
-        cursor.close()
-        conn.close()
-        
-        # Convert timestamps to ISO format
-        for row in rows:
-            if row['timestamp']:
-                row['timestamp'] = row['timestamp'].isoformat()
-        
-        return rows
-    except Exception as e:
-        print(f"Database error: {e}")
-        return []
 
 
-def get_active_machines() -> List[Dict]:
-    """Get list of active machines with latest status."""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
-        
-        query = """
-            SELECT DISTINCT ON (machine_id)
-                machine_id,
-                timestamp as last_seen,
-                failure_prediction,
-                COALESCE(degradation_score_smoothed, degradation_score, 0.0) as degradation_score
-            FROM cwru_features
-            ORDER BY machine_id, timestamp DESC
-            LIMIT 10
-        """
-        cursor.execute(query)
-        rows = cursor.fetchall()
-        cursor.close()
-        conn.close()
-        
-        machines = []
-        for row in rows:
-            prob = row['failure_prediction'] or 0.0
-            degradation = row.get('degradation_score', 0.0) or 0.0
-            
-            # Simple RUL Calculation (matches WebSocket logic)
-            # Using smoothed degradation for stability
-            current_life_hours = 2000 * (1.0 - degradation)**2
-            rul_days = max(0.0, current_life_hours / 24.0)
-            
-            status = "CRITICAL" if prob > 0.8 else "WARNING" if prob > 0.5 else "HEALTHY"
-            
-            # Get equipment metadata from lookup
-            machine_id = row['machine_id']
-            metadata = EQUIPMENT_METADATA.get(machine_id, {})
-            
-            machines.append({
-                "machine_id": machine_id,
-                "machine_name": metadata.get("name", machine_id),
-                "shop": metadata.get("shop", "Unassigned Shop"),
-                "line_name": metadata.get("line", "Unassigned Line"),
-                "equipment_type": metadata.get("type", "Equipment"),
-                "last_seen": row['last_seen'].isoformat() if row['last_seen'] else None,
-                "failure_probability": prob,
-                "rul_days": float(rul_days),
-                "status": status
-            })
-        
-        return machines
-    except Exception as e:
-        print(f"Database error: {e}")
-        return []
+# =============================================================================
+# DATABASE HELPERS (Async)
+# =============================================================================
+
+async def fetch_latest_features(db: AsyncSession, machine_id: str, limit: int = 1) -> List[Dict]:
+    """Helper to fetch features asynchronously."""
+    query = text("""
+        SELECT *
+        FROM cwru_features
+        WHERE machine_id = :machine_id
+        ORDER BY timestamp DESC
+        LIMIT :limit
+    """)
+    result = await db.execute(query, {"machine_id": machine_id, "limit": limit})
+    rows = result.mappings().all()
+    return [dict(row) for row in rows]
+
 
 
 # =============================================================================
@@ -424,35 +369,11 @@ async def root():
 async def health_check():
     """
     Public health check endpoint for load balancers.
-    
-    Tests database connectivity and returns appropriate status.
-    No authentication required.
+    Checks database connection pool status.
     """
-    db_status = "offline"
-    
-    try:
-        if DATABASE_URL:
-            conn = psycopg2.connect(DATABASE_URL)
-            cursor = conn.cursor()
-            cursor.execute("SELECT 1")
-            cursor.fetchone()
-            cursor.close()
-            conn.close()
-            db_status = "online"
-    except Exception as e:
-        print(f"[Health Check] Database error: {e}")
-        db_status = "offline"
-    
-    if db_status == "online":
-        return JSONResponse(
-            status_code=200,
-            content={"status": "healthy", "database": "online"}
-        )
-    else:
-        return JSONResponse(
-            status_code=503,
-            content={"status": "unhealthy", "database": "offline"}
-        )
+    health = await check_database_health()
+    status_code = 200 if health["status"] == "healthy" else 503
+    return JSONResponse(content=health, status_code=status_code)
 
 
 @app.get("/api/health", response_model=HealthResponse, tags=["System"])
@@ -470,31 +391,151 @@ async def detailed_health_check():
 @app.get("/api/features", tags=["Data"])
 async def get_features(
     limit: int = Query(100, ge=1, le=1000, description="Number of records to return"),
-    machine_id: str = Query(None, description="Filter by machine ID")
-):
+    machine_id: str = Query(None, description="Filter by machine ID"),
+    db: AsyncSession = Depends(get_db)
+) -> APIResponse[List[Dict]]:
     """
-    Retrieve historical feature records from the database.
-    
-    Returns the latest N records from cwru_features table,
-    optionally filtered by machine_id.
+    Retrieve historical feature records.
     """
-    records = query_features(limit=limit, machine_id=machine_id)
-    return {"count": len(records), "data": records}
+    try:
+        if machine_id:
+            query = text("""
+                SELECT 
+                    timestamp, machine_id,
+                    peak_freq_1, peak_freq_2, peak_freq_3, peak_freq_4, peak_freq_5,
+                    peak_amp_1, peak_amp_2, peak_amp_3, peak_amp_4, peak_amp_5,
+                    low_band_power, mid_band_power, high_band_power,
+                    spectral_entropy, spectral_kurtosis, total_power,
+                    bpfo_amp, bpfi_amp, bsf_amp, ftf_amp, sideband_strength,
+                    degradation_score, degradation_score_smoothed,
+                    rotational_speed, temperature, torque, tool_wear,
+                    failure_prediction, failure_class
+                FROM cwru_features
+                WHERE machine_id = :machine_id
+                ORDER BY timestamp DESC
+                LIMIT :limit
+            """)
+            result = await db.execute(query, {"machine_id": machine_id, "limit": limit})
+        else:
+            query = text("""
+                SELECT 
+                    timestamp, machine_id,
+                    peak_freq_1, peak_freq_2, peak_freq_3, peak_freq_4, peak_freq_5,
+                    peak_amp_1, peak_amp_2, peak_amp_3, peak_amp_4, peak_amp_5,
+                    low_band_power, mid_band_power, high_band_power,
+                    spectral_entropy, spectral_kurtosis, total_power,
+                    bpfo_amp, bpfi_amp, bsf_amp, ftf_amp, sideband_strength,
+                    degradation_score, degradation_score_smoothed,
+                    rotational_speed, temperature, torque, tool_wear,
+                    failure_prediction, failure_class
+                FROM cwru_features
+                ORDER BY timestamp DESC
+                LIMIT :limit
+            """)
+            result = await db.execute(query, {"limit": limit})
+        
+        # Convert rows to dicts
+        rows = result.mappings().all()
+        data = [dict(row) for row in rows]
+        
+        # ISO format timestamps (if not already handled by json encoder)
+        for row in data:
+            if row.get('timestamp'):
+                row['timestamp'] = row['timestamp'].isoformat() if hasattr(row['timestamp'], 'isoformat') else str(row['timestamp'])
+
+        return APIResponse.success(data=data, count=len(data))
+    except Exception as e:
+        print(f"Error extracting features: {e}")
+        return APIResponse.error(str(e))
 
 
-@app.get("/api/machines", tags=["Data"])
-async def get_machines():
+@app.get("/api/machines", tags=["Data"], response_class=ORJSONResponse)
+async def get_machines(db: AsyncSession = Depends(get_db)) -> APIResponse[List[Dict]]:
     """
     Get list of active machines with their current status.
-    
-    Returns each machine's last seen timestamp and failure probability.
+    Calculations offloaded to SQL for performance.
     """
-    machines = get_active_machines()
-    return {"count": len(machines), "data": machines}
+    try:
+        # DISTINCT ON is Postgres specific
+        # Calculate Status and RUL directly in DB
+        query = text("""
+            SELECT DISTINCT ON (machine_id)
+                machine_id,
+                timestamp as last_seen,
+                failure_prediction,
+                COALESCE(degradation_score_smoothed, degradation_score, 0.0) as degradation_score,
+                
+                -- RUL Calculation: 2000 * (1 - degradation)^2 / 24
+                GREATEST(0, (2000 * POWER(1.0 - COALESCE(degradation_score_smoothed, degradation_score, 0.0), 2)) / 24.0) as rul_days,
+                
+                -- Status Logic
+                CASE 
+                    WHEN failure_prediction > 0.8 THEN 'CRITICAL'
+                    WHEN failure_prediction > 0.5 THEN 'WARNING'
+                    ELSE 'HEALTHY'
+                END as status
+                
+            FROM cwru_features
+            ORDER BY machine_id, timestamp DESC
+            LIMIT 100
+        """)
+        
+        result = await db.execute(query)
+        rows = result.mappings().all()
+        
+        machines = []
+        for row in rows:
+            # Metadata lookup (in-memory)
+            machine_id = row['machine_id']
+            metadata = EQUIPMENT_METADATA.get(machine_id, {})
+            
+            machines.append({
+                "machine_id": machine_id,
+                "machine_name": metadata.get("name", machine_id),
+                "shop": metadata.get("shop", "Unassigned Shop"),
+                "line_name": metadata.get("line", "Unassigned Line"),
+                "equipment_type": metadata.get("type", "Equipment"),
+                "last_seen": row['last_seen'],
+                "failure_probability": row['failure_prediction'],
+                "rul_days": float(row['rul_days']),
+                "status": row['status']
+            })
+            
+        return APIResponse.success(data=machines, count=len(machines))
+    except Exception as e:
+        print(f"Error fetching machines: {e}")
+        return APIResponse.error(str(e))
+
+
+
+# =============================================================================
+# ANALYTICS ENDPOINTS
+# =============================================================================
+
+async def run_analytics_task():
+    """Run analytics engine in a separate thread to avoid blocking loop."""
+    try:
+        print("[Analytics] Starting background analysis...")
+        # Stub for Celery worker offload
+        # await run_in_threadpool(analytics_engine.main)
+        # Using built-in threadpool for now as requested
+        await run_in_threadpool(analytics_engine.main)
+        print("[Analytics] Background analysis complete.")
+    except Exception as e:
+        print(f"[Analytics] Error in background task: {e}")
+
+@app.post("/api/analytics/trigger", status_code=202, tags=["Analytics"])
+async def trigger_analytics(background_tasks: BackgroundTasks):
+    """
+    Trigger the heavy analytics engine in the background.
+    Returns immediately with 202 Accepted.
+    """
+    background_tasks.add_task(run_analytics_task)
+    return {"status": "accepted", "message": "Analytics engine started in background"}
 
 
 @app.get("/api/recommendations/{machine_id}", tags=["AI"])
-async def get_recommendation(machine_id: str):
+async def get_recommendation(machine_id: str, db: AsyncSession = Depends(get_db)):
     """
     Get AI-powered maintenance recommendation for a specific machine.
     
@@ -520,7 +561,7 @@ async def get_recommendation(machine_id: str):
             raise HTTPException(status_code=404, detail=f"Machine {machine_id} not found")
         
         # Get latest sensor data for this machine
-        records = query_features(limit=1, machine_id=machine_id)
+        records = await fetch_latest_features(db, machine_id, limit=1)
         if not records:
             raise HTTPException(status_code=404, detail=f"No sensor data for {machine_id}")
         
@@ -563,16 +604,34 @@ async def get_recommendation(machine_id: str):
 # WEBSOCKET ENDPOINT
 # =============================================================================
 @app.websocket("/ws/stream")
-async def websocket_stream(websocket: WebSocket):
+async def websocket_stream(websocket: WebSocket, token: str = Query(None)):
     """
     Real-time WebSocket stream of sensor telemetry.
     
     Subscribes to Redis sensor_stream channel and broadcasts
     processed data to connected clients at ~10Hz.
+    
+    Requires valid JWT token in query parameter: /ws/stream?token=...
     """
+    # 1. Validate Token
+    if not token:
+        print("[WS] Connection rejected: No token provided")
+        await websocket.close(code=1008, reason="Missing authentication token")
+        return
+        
+    payload = decode_access_token(token)
+    if not payload:
+        print("[WS] Connection rejected: Invalid token")
+        await websocket.close(code=1008, reason="Invalid authentication token")
+        return
+        
+    # 2. Accept & Store User
+    user_id = payload.get("sub")
+    websocket.state.user_id = user_id
+    
     await websocket.accept()
     state.connected_clients.append(websocket)
-    print(f"[WS] Client connected. Total: {len(state.connected_clients)}")
+    print(f"[WS] Client connected: {user_id}. Total: {len(state.connected_clients)}")
     
     try:
         if state.redis is None:
@@ -583,11 +642,17 @@ async def websocket_stream(websocket: WebSocket):
         pubsub = state.redis.pubsub()
         await pubsub.subscribe(REDIS_CHANNEL)
         
-        async for message in pubsub.listen():
-            if message['type'] != 'message':
-                continue
-            
+        # Manual iteration to support heartbeat timeout
+        iterator = pubsub.listen()
+        
+        while True:
             try:
+                # Wait for message with 10s heartbeat timeout
+                message = await asyncio.wait_for(iterator.__anext__(), timeout=10.0)
+                
+                if message['type'] != 'message':
+                    continue
+                
                 # Parse incoming sensor data
                 payload = json.loads(message['data'])
                 
@@ -616,19 +681,26 @@ async def websocket_stream(websocket: WebSocket):
                     
                     # Get smoothed degradation for stable RUL calculation
                     # Query latest smoothed value from database
-                    cursor = state.conn.cursor()
-                    cursor.execute("""
-                        SELECT degradation_score_smoothed 
-                        FROM cwru_features 
-                        WHERE machine_id = %s 
-                        ORDER BY timestamp DESC 
-                        LIMIT 1
-                    """, (machine_id,))
-                    result = cursor.fetchone()
-                    cursor.close()
-                    
+                    # Use get_db_context for async safe access
+                    from database import get_db_context
+                    degradation_db = 0.0
+                    try:
+                        async with get_db_context() as db:
+                            result = await db.execute(text("""
+                                SELECT degradation_score_smoothed 
+                                FROM cwru_features 
+                                WHERE machine_id = :machine_id 
+                                ORDER BY timestamp DESC 
+                                LIMIT 1
+                            """), {"machine_id": machine_id})
+                            row = result.fetchone()
+                            if row:
+                                degradation_db = row[0]
+                    except Exception as e:
+                       print(f"[WS] DB Error: {e}")
+
                     # Use smoothed degradation if available, otherwise use raw
-                    degradation = result[0] if result else features.get('degradation_score', 0)
+                    degradation = degradation_db if degradation_db else features.get('degradation_score', 0)
                     
                     # 1. RUL Calculation (Physics-based with smoothing)
                     # Factory baseline: 2000 hours life. Exponential decay model.
@@ -726,6 +798,11 @@ async def websocket_stream(websocket: WebSocket):
                 if websocket.client_state.name == "CONNECTED" and websocket.application_state.name == "CONNECTED":
                     await websocket.send_json(response)
                 
+            except asyncio.TimeoutError:
+                # Send heartbeat
+                if websocket.client_state.name == "CONNECTED":
+                    await websocket.send_json({"type": "heartbeat", "timestamp": datetime.now(timezone.utc).isoformat()})
+                    
             except json.JSONDecodeError:
                 continue
             except Exception as e:

@@ -10,6 +10,7 @@
 # =============================================================================
 .env
 .env.*
+!.env.example
 .env.local
 .env.production
 .env.development
@@ -93,6 +94,7 @@ data/
 *.tflite
 models/
 !models/.gitkeep
+!db/models/
 
 # =============================================================================
 # 🗄️ DATABASE FILES

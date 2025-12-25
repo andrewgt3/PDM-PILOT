@@ -24,36 +24,26 @@ Usage:
 Author: PlantAGI Security Team
 """
 
-import os
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
 
 import bcrypt
 from jose import jwt, JWTError
-from dotenv import load_dotenv
+from config import get_settings
 
-# Load environment variables
-load_dotenv()
+# Load settings
+settings = get_settings()
 
 # =============================================================================
 # CONFIGURATION
 # =============================================================================
 
-# Secret key for JWT signing - MUST be set in production!
-SECRET_KEY = os.getenv("JWT_SECRET_KEY")
-if not SECRET_KEY:
-    # Generate a warning but use a default for development
-    import warnings
-    warnings.warn(
-        "JWT_SECRET_KEY not set in environment! Using insecure default. "
-        "Set JWT_SECRET_KEY in your .env file for production.",
-        UserWarning
-    )
-    SECRET_KEY = "INSECURE_DEFAULT_KEY_CHANGE_ME_IN_PRODUCTION"
+# Secret key for JWT signing
+SECRET_KEY = settings.security.jwt_secret.get_secret_value()
 
 # JWT Configuration
-ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
+ALGORITHM = settings.security.jwt_algorithm
+ACCESS_TOKEN_EXPIRE_MINUTES = settings.security.jwt_expiry_minutes
 
 
 # =============================================================================

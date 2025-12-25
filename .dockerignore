@@ -1,11 +1,59 @@
-data/
-.git/
+# =============================================================================
+# .dockerignore — Secure Build Context
+# =============================================================================
+
+# 1. Secrets & Credentials (CRITICAL)
+# -----------------------------------------------------------------------------
 .env
+.env.*
+*.pem
+*.key
+secrets/
+config.py  # If config.py accidentally contains hardcoded secrets (though it shouldn't)
+
+# 2. Version Control
+# -----------------------------------------------------------------------------
+.git/
+.gitignore
+.gitattributes
+
+# 3. Python Cache & Build Artifacts
+# -----------------------------------------------------------------------------
 __pycache__/
-*.pyc
-.DS_Store
-venv/
+*.py[cod]
+*$py.class
+*.so
 .pytest_cache/
-frontend/node_modules/
-frontend/dist/
-project_docs/
+.coverage
+htmlcov/
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
+.mypy_cache/
+.tox/
+
+# 4. Large Data & Models
+# -----------------------------------------------------------------------------
+data/
+models/
+*.pkl
+*.h5
+*.csv
+*.db
+*.sqlite
+
+# 5. Local Development Configs
+# -----------------------------------------------------------------------------
+docker-compose.yml
+docker-compose.override.yml
+.vscode/
+.idea/
+*.log
+
+# 6. Documentation
+# -----------------------------------------------------------------------------
+docs/
+README.md
+CONTRIBUTING.md
