@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { BarChart3, ChevronDown, ChevronUp, Info, Activity, Lightbulb } from 'lucide-react';
+import { BarChart3, ChevronDown, ChevronUp, Info, Activity, Lightbulb, Zap } from 'lucide-react';
 import { Card, Box, Typography, Collapse, LinearProgress, Stack, Grid, Chip } from '@mui/material';
 
 /**
  * FeatureImportancePanel Component
  * Shows which features are driving the AI's failure prediction (Explainable AI)
+ * Refactored for "Expert Analysis" suite.
  */
 export function FeatureImportancePanel({ data, failureProbability }) {
     const [expandedFeature, setExpandedFeature] = useState(null);
@@ -13,9 +14,9 @@ export function FeatureImportancePanel({ data, failureProbability }) {
         return (
             <Card variant="outlined" sx={{ p: 3, borderRadius: 2 }}>
                 <Typography variant="subtitle2" fontWeight="bold" textTransform="uppercase" color="text.secondary" gutterBottom>
-                    Prediction Drivers
+                    Expert Analysis: Predictions
                 </Typography>
-                <Typography variant="body2" color="text.secondary">No data available</Typography>
+                <Typography variant="body2" color="text.secondary">No telemetry data available</Typography>
             </Card>
         );
     }
@@ -43,9 +44,9 @@ export function FeatureImportancePanel({ data, failureProbability }) {
                 warningRange: '0.05 - 0.3 g',
                 criticalRange: '> 0.3 g',
                 actions: ['Schedule bearing inspection', 'Check lubrication', 'Verify shaft alignment']
-            }
+            },
+            limit: 0.5
         },
-        // ... (Other features would be here, simplifying for brevity/MUI translation)
         {
             name: 'Degradation Score',
             value: latest.degradation_score || 0,
@@ -58,7 +59,8 @@ export function FeatureImportancePanel({ data, failureProbability }) {
                 warningRange: '0.3 - 0.7',
                 criticalRange: '> 0.7',
                 actions: ['Review all fault indicators', 'Plan preventive maintenance']
-            }
+            },
+            limit: 1.0
         },
         {
             name: 'Spectral Kurtosis',
@@ -72,7 +74,8 @@ export function FeatureImportancePanel({ data, failureProbability }) {
                 warningRange: '4 - 7',
                 criticalRange: '> 7',
                 actions: ['Investigate source of impacts', 'Check for looseness']
-            }
+            },
+            limit: 10
         },
         {
             name: 'BPFO Amplitude',
@@ -86,7 +89,8 @@ export function FeatureImportancePanel({ data, failureProbability }) {
                 warningRange: '0.05 - 0.3 g',
                 criticalRange: '> 0.3 g',
                 actions: ['Inspect bearing for spalling', 'Check housing fit']
-            }
+            },
+            limit: 0.5
         },
         {
             name: 'High Band Power',
@@ -100,7 +104,8 @@ export function FeatureImportancePanel({ data, failureProbability }) {
                 warningRange: '0.1 - 0.5',
                 criticalRange: '> 0.5',
                 actions: ['Monitor for progression', 'Check gearbox if applicable']
-            }
+            },
+            limit: 1.0
         }
     ];
 
@@ -118,10 +123,10 @@ export function FeatureImportancePanel({ data, failureProbability }) {
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
                 <Box>
                     <Typography variant="subtitle2" fontWeight="bold" textTransform="uppercase" color="text.secondary">
-                        Prediction Drivers
+                        Expert Analysis: Predictions
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
-                        Contribution to {prob.toFixed(1)}% failure probability
+                        Explainable AI (XAI) Driver Analysis
                     </Typography>
                 </Box>
                 <BarChart3 size={20} className="text-slate-400" />
@@ -132,28 +137,38 @@ export function FeatureImportancePanel({ data, failureProbability }) {
                     const percentage = (feature.importance / maxImportance) * 100;
                     const isHighImpact = percentage > 70;
                     const isExpanded = expandedFeature === feature.name;
+                    const percOfLimit = Math.min((feature.value / feature.limit) * 100, 100);
 
-                    const progressColor = isHighImpact ? 'error' : idx === 0 ? 'primary' : 'inherit';
-                    const gradientClass = isHighImpact ? 'linear-gradient(90deg, #ef4444 0%, #f97316 100%)' : idx === 0 ? 'linear-gradient(90deg, #6366f1 0%, #4f46e5 100%)' : undefined;
+                    // Gradient for the influence bar
+                    const gradientClass = isHighImpact
+                        ? 'linear-gradient(90deg, #ef4444 0%, #f97316 100%)' // Red-Orange
+                        : idx === 0
+                            ? 'linear-gradient(90deg, #6366f1 0%, #4f46e5 100%)' // Indigo
+                            : 'linear-gradient(90deg, #94a3b8 0%, #64748b 100%)'; // Gray
 
                     return (
-                        <Card key={feature.name} variant="outlined" sx={{ overflow: 'hidden' }}>
+                        <Card key={feature.name} variant="outlined" sx={{ overflow: 'hidden', transition: 'box-shadow 0.2s', boxShadow: isExpanded ? 2 : 0 }}>
                             <Box
                                 onClick={() => toggleExpand(feature.name)}
                                 sx={{ p: 2, cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' } }}
                             >
-                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
                                     <Stack direction="row" spacing={2} alignItems="center">
                                         <Box sx={{
-                                            width: 20, height: 20, borderRadius: '50%',
-                                            bgcolor: idx === 0 ? 'primary.lighter' : 'grey.100',
-                                            color: idx === 0 ? 'primary.main' : 'text.disabled',
+                                            width: 24, height: 24, borderRadius: '50%',
+                                            bgcolor: 'slate.900', color: 'white',
                                             display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                            fontSize: '0.7rem', fontWeight: 'bold'
+                                            fontSize: '0.75rem', fontWeight: 'bold', fontFamily: 'monospace'
                                         }}>
                                             {idx + 1}
                                         </Box>
-                                        <Typography variant="body2" fontWeight="medium">{feature.name}</Typography>
+                                        <Box>
+                                            <Typography variant="body2" fontWeight="medium">{feature.name}</Typography>
+                                            <Typography variant="caption" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                                <Zap size={10} className={isHighImpact ? "text-amber-500" : "text-slate-400"} fill={isHighImpact ? "currentColor" : "none"} />
+                                                Influence Weight
+                                            </Typography>
+                                        </Box>
                                     </Stack>
                                     <Stack direction="row" spacing={2} alignItems="center">
                                         <Typography variant="body2" fontWeight="bold" fontFamily="monospace" color={isHighImpact ? 'error.main' : 'text.secondary'}>
@@ -162,14 +177,15 @@ export function FeatureImportancePanel({ data, failureProbability }) {
                                         {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                                     </Stack>
                                 </Box>
-                                <Box sx={{ mt: 2 }}>
-                                    {/* Custom Linear Progress to support gradient */}
-                                    <Box sx={{ position: 'relative', height: 12, borderRadius: 1, bgcolor: 'grey.100', overflow: 'hidden' }}>
+                                <Box sx={{ mt: 1 }}>
+                                    {/* XAI Influence Bar */}
+                                    <Box sx={{ position: 'relative', height: 8, borderRadius: 1, bgcolor: 'grey.100', overflow: 'hidden' }}>
                                         <Box sx={{
                                             height: '100%',
                                             width: `${percentage}%`,
-                                            background: gradientClass || '#94a3b8',
-                                            transition: 'width 0.5s ease'
+                                            background: gradientClass,
+                                            transition: 'width 0.5s ease',
+                                            boxShadow: '0 0 8px rgba(99, 102, 241, 0.2)'
                                         }} />
                                     </Box>
                                 </Box>
@@ -178,66 +194,59 @@ export function FeatureImportancePanel({ data, failureProbability }) {
                             <Collapse in={isExpanded}>
                                 <Box sx={{ p: 2, bgcolor: 'grey.50', borderTop: 1, borderColor: 'divider' }}>
                                     <Grid container spacing={2}>
-                                        <Grid item xs={12} md={6}>
-                                            <Stack spacing={1}>
+                                        <Grid item xs={12} md={7}>
+                                            <Stack spacing={2}>
                                                 <Box>
                                                     <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
-                                                        <Info size={14} />
-                                                        <Typography variant="caption" fontWeight="bold" textTransform="uppercase">What is this?</Typography>
+                                                        <Info size={14} className="text-indigo-500" />
+                                                        <Typography variant="caption" fontWeight="bold" textTransform="uppercase" color="primary.main">AI Context</Typography>
                                                     </Stack>
-                                                    <Typography variant="caption" color="text.secondary">{feature.detailedInfo.whatIs}</Typography>
+                                                    <Typography variant="body2" color="text.secondary" fontSize="0.85rem" sx={{ lineHeight: 1.6 }}>
+                                                        {feature.detailedInfo.whyImportant}
+                                                    </Typography>
                                                 </Box>
-                                                <Box>
-                                                    <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
-                                                        <Lightbulb size={14} />
-                                                        <Typography variant="caption" fontWeight="bold" textTransform="uppercase">Why it matters</Typography>
-                                                    </Stack>
-                                                    <Typography variant="caption" color="text.secondary">{feature.detailedInfo.whyImportant}</Typography>
+                                                <Box sx={{ p: 1.5, bgcolor: 'white', borderRadius: 1, border: 1, borderColor: 'divider' }}>
+                                                    <Typography variant="caption" fontWeight="bold" textTransform="uppercase" display="block" gutterBottom color="text.secondary">Definition</Typography>
+                                                    <Typography variant="caption" color="text.primary">{feature.detailedInfo.whatIs}</Typography>
                                                 </Box>
                                             </Stack>
                                         </Grid>
-                                        <Grid item xs={12} md={6}>
-                                            <Box sx={{ p: 2, bgcolor: 'background.paper', borderRadius: 1, border: 1, borderColor: 'divider' }}>
-                                                <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+                                        <Grid item xs={12} md={5}>
+                                            {/* Digital Readout */}
+                                            <Box sx={{ p: 2, bgcolor: 'slate.900', borderRadius: 2, color: 'white', boxShadow: 'inset 0 2px 10px rgba(0,0,0,0.5)' }}>
+                                                <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1, opacity: 0.7 }}>
                                                     <Activity size={14} />
-                                                    <Typography variant="caption" fontWeight="bold" textTransform="uppercase">Live Values</Typography>
+                                                    <Typography variant="caption" fontWeight="bold" textTransform="uppercase">Live Value</Typography>
                                                 </Stack>
-                                                <Grid container spacing={1}>
-                                                    <Grid item xs={3}>
-                                                        <Box sx={{ p: 1, bgcolor: 'grey.50', borderRadius: 1 }}>
-                                                            <Typography variant="caption" color="text.secondary" display="block">current</Typography>
-                                                            <Typography variant="caption" fontWeight="bold" fontFamily="monospace">
-                                                                {typeof feature.value === 'number' ? feature.value.toFixed(4) : feature.value}
-                                                            </Typography>
-                                                        </Box>
-                                                    </Grid>
-                                                    <Grid item xs={3}>
-                                                        <Box sx={{ p: 1, bgcolor: 'success.lighter', borderRadius: 1, border: 1, borderColor: 'success.light' }}>
-                                                            <Typography variant="caption" color="success.main" display="block">healthy</Typography>
-                                                            <Typography variant="caption" fontWeight="medium" color="success.dark">{feature.detailedInfo.healthyRange}</Typography>
-                                                        </Box>
-                                                    </Grid>
-                                                    <Grid item xs={3}>
-                                                        <Box sx={{ p: 1, bgcolor: 'warning.lighter', borderRadius: 1, border: 1, borderColor: 'warning.light' }}>
-                                                            <Typography variant="caption" color="warning.main" display="block">warning</Typography>
-                                                            <Typography variant="caption" fontWeight="medium" color="warning.dark">{feature.detailedInfo.warningRange}</Typography>
-                                                        </Box>
-                                                    </Grid>
-                                                    <Grid item xs={3}>
-                                                        <Box sx={{ p: 1, bgcolor: 'error.lighter', borderRadius: 1, border: 1, borderColor: 'error.light' }}>
-                                                            <Typography variant="caption" color="error.main" display="block">critical</Typography>
-                                                            <Typography variant="caption" fontWeight="medium" color="error.dark">{feature.detailedInfo.criticalRange}</Typography>
-                                                        </Box>
-                                                    </Grid>
-                                                </Grid>
+
+                                                <Typography variant="h4" fontFamily="monospace" fontWeight="bold" sx={{ color: percOfLimit > 80 ? '#f87171' : '#4ade80', textShadow: '0 0 10px rgba(74, 222, 128, 0.3)' }}>
+                                                    {typeof feature.value === 'number' ? feature.value.toFixed(4) : feature.value}
+                                                </Typography>
+
+                                                <Box sx={{ mt: 2 }}>
+                                                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                                                        <Typography variant="caption" sx={{ fontSize: '0.65rem', opacity: 0.7 }}>% of Limit</Typography>
+                                                        <Typography variant="caption" sx={{ fontSize: '0.65rem', color: percOfLimit > 80 ? '#f87171' : '#4ade80' }}>{percOfLimit.toFixed(0)}%</Typography>
+                                                    </Box>
+                                                    <LinearProgress
+                                                        variant="determinate"
+                                                        value={percOfLimit}
+                                                        sx={{
+                                                            height: 4,
+                                                            bgcolor: 'rgba(255,255,255,0.1)',
+                                                            '& .MuiLinearProgress-bar': {
+                                                                bgcolor: percOfLimit > 80 ? '#f87171' : '#4ade80'
+                                                            }
+                                                        }}
+                                                    />
+                                                </Box>
                                             </Box>
 
                                             <Box sx={{ mt: 2 }}>
-                                                <Typography variant="caption" fontWeight="bold" textTransform="uppercase" display="block" gutterBottom>Recommended Actions</Typography>
-                                                <Stack spacing={0.5}>
-                                                    {feature.detailedInfo.actions.map((action, i) => (
-                                                        <Typography key={i} variant="caption" color="primary.main" display="block">• {action}</Typography>
-                                                    ))}
+                                                <Typography variant="caption" fontWeight="bold" textTransform="uppercase" display="block" gutterBottom color="text.secondary">Thresholds</Typography>
+                                                <Stack direction="row" spacing={1}>
+                                                    <Chip label={`Warn: ${feature.detailedInfo.warningRange}`} size="small" variant="outlined" sx={{ fontSize: '0.65rem', height: 20, borderColor: 'warning.main', color: 'warning.dark' }} />
+                                                    <Chip label={`Crit: ${feature.detailedInfo.criticalRange}`} size="small" variant="outlined" sx={{ fontSize: '0.65rem', height: 20, borderColor: 'error.main', color: 'error.dark' }} />
                                                 </Stack>
                                             </Box>
                                         </Grid>

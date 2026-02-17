@@ -63,8 +63,8 @@ settings = get_settings()
 TEMP_USERS = {
     "admin": {
         "username": "admin",
-        # Hashed "secret123"
-        "hashed_password": "$2b$12$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36WQoeG6Lruj3vjPGga31lW", 
+        # Hashed "secret123" - regenerated for bcrypt compatibility
+        "hashed_password": "$2b$12$LIHnanXRW.tNQMk9IXfYE.G1sET8AO32Thl/M8poeZULPvkI0FJP.", 
         "role": "admin",
         "email": "admin@plantagi.com"
     }
@@ -105,7 +105,12 @@ async def login_for_access_token(request: Request, form_data: OAuth2PasswordRequ
         role=UserRole(user["role"])
     )
     
-    return {"access_token": access_token, "token_type": "bearer"}
+    # Return OAuth2-compatible response with expires_in
+    return {
+        "access_token": access_token, 
+        "token_type": "bearer",
+        "expires_in": 1800,  # 30 minutes in seconds
+    }
 
 # get_current_user and get_current_admin_user removed (imported from dependencies)
 
@@ -171,31 +176,17 @@ async def ingest_bulk_telemetry(
 ):
     """
     Bulk ingest validated telemetry data (up to 1000 readings).
+    Uses TelemetryService for business logic encapsulation.
     """
     try:
-        query = text("""
-            INSERT INTO sensor_readings 
-            (machine_id, timestamp, rotational_speed, temperature, torque, tool_wear)
-            VALUES (:machine_id, :timestamp, :rotational_speed, :temperature, :torque, :tool_wear)
-        """)
+        from services.telemetry_service import TelemetryService
         
-        values = []
-        for reading in data.readings:
-            values.append({
-                "machine_id": reading.machine_id,
-                "timestamp": reading.timestamp or datetime.now(timezone.utc),
-                "rotational_speed": reading.rotational_speed,
-                "temperature": reading.temperature,
-                "torque": reading.torque,
-                "tool_wear": reading.tool_wear
-            })
-        
-        await db.execute(query, values)
-        # Auto-commit handled by dependency
+        service = TelemetryService(db)
+        count = await service.process_batch(data)
         
         return {
             "status": "accepted",
-            "readings_ingested": len(data.readings)
+            "readings_ingested": count
         }
     
     except Exception as e:

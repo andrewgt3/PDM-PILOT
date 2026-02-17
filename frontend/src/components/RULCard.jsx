@@ -1,17 +1,13 @@
-import React from 'react';
-import { AlertCircle, CheckCircle, Clock, TrendingDown, Activity, Calendar, Target, Percent } from 'lucide-react';
-import { Card, CardContent, Typography, Box, LinearProgress, Chip, Stack, Grid, Skeleton, Tooltip } from '@mui/material';
+import React, { useMemo } from 'react';
+import { AlertCircle, CheckCircle, Clock, TrendingDown, Activity, Calendar, Percent, TriangleAlert } from 'lucide-react';
+import { Card, CardContent, Typography, Box, Button, Chip, Stack, Grid, Skeleton } from '@mui/material';
 
 /**
- * RULCard Component (Enterprise Version)
+ * RULCard Component (High-Urgency Diagnostic Edition)
  * 
- * Displays detailed Remaining Useful Life analytics including:
- * - RUL estimate with confidence interval
- * - Failure probability distribution
- * - Risk assessment metrics
- * - Scheduled maintenance window
+ * Displays detailed Remaining Useful Life analytics with industrial precision.
  */
-function RULCard({ rul, maxRul = 90, failureProbability = 0, degradationScore = 0 }) {
+function RULCard({ rul, maxRul = 90, failureProbability = 0, degradationScore = 0, onSchedule }) {
     // Handle missing data
     if (rul === undefined || rul === null) {
         return (
@@ -40,6 +36,11 @@ function RULCard({ rul, maxRul = 90, failureProbability = 0, degradationScore = 
     const rulLower = Math.max(0, rulDays - confidenceMargin);
     const rulUpper = rulDays + confidenceMargin;
 
+    // Predicted Failure Date
+    const failureDate = new Date();
+    failureDate.setDate(failureDate.getDate() + rulDays);
+    const dateString = failureDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+
     // Determine urgency level
     let urgency = 'healthy';
     if (rulDays < 7 || failProb > 80) urgency = 'critical';
@@ -48,33 +49,39 @@ function RULCard({ rul, maxRul = 90, failureProbability = 0, degradationScore = 
     // Risk score (0-100)
     const riskScore = Math.min(100, (failProb * 0.6) + ((100 - (rulDays / maxRul * 100)) * 0.4));
 
-    // Styling based on urgency
+    // Dynamic Styles
     const styles = {
         critical: {
-            headerBg: 'linear-gradient(to right, #dc2626, #ef4444)', // red-600 to red-500
-            color: 'error.main',
-            accentBg: '#fef2f2', // red-50
-            progressColor: 'error',
-            Icon: AlertCircle
+            headerBg: 'linear-gradient(to right, #b91c1c, #dc2626)', // Dark Red
+            color: '#ef4444',
+            lightColor: '#fca5a5',
+            glassBorder: 'rgba(239, 68, 68, 0.3)',
+            glassBg: 'rgba(239, 68, 68, 0.05)',
+            Icon: TriangleAlert,
+            glow: '0 0 15px rgba(220, 38, 38, 0.6)'
         },
         warning: {
-            headerBg: 'linear-gradient(to right, #d97706, #f59e0b)', // amber-600 to amber-500
-            color: 'warning.main',
-            accentBg: '#fffbeb', // amber-50
-            progressColor: 'warning',
-            Icon: Clock
+            headerBg: 'linear-gradient(to right, #b45309, #d97706)', // Dark Amber
+            color: '#f59e0b',
+            lightColor: '#fcd34d',
+            glassBorder: 'rgba(245, 158, 11, 0.3)',
+            glassBg: 'rgba(245, 158, 11, 0.05)',
+            Icon: Clock,
+            glow: '0 0 10px rgba(217, 119, 6, 0.4)'
         },
         healthy: {
-            headerBg: 'linear-gradient(to right, #059669, #10b981)', // emerald-600 to emerald-500
-            color: 'success.main',
-            accentBg: '#ecfdf5', // emerald-50
-            progressColor: 'success',
-            Icon: CheckCircle
+            headerBg: 'linear-gradient(to right, #047857, #059669)', // Dark Emerald
+            color: '#10b981',
+            lightColor: '#6ee7b7',
+            glassBorder: 'rgba(16, 185, 129, 0.3)',
+            glassBg: 'rgba(16, 185, 129, 0.05)',
+            Icon: CheckCircle,
+            glow: 'none'
         }
     };
 
     const style = styles[urgency];
-    const progress = Math.min(100, (rulDays / maxRul) * 100);
+    const progress = Math.min(100, (1 - (rulDays / maxRul)) * 100); // % Consumed
 
     // Next maintenance window calculation
     const getMaintenanceWindow = () => {
@@ -86,149 +93,234 @@ function RULCard({ rul, maxRul = 90, failureProbability = 0, degradationScore = 
     };
 
     return (
-        <Card variant="outlined" sx={{ height: '100%', borderRadius: 2, display: 'flex', flexDirection: 'column' }}>
-            {/* Header with gradient */}
+        <Card variant="outlined" sx={{ height: '100%', borderRadius: 2, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            {/* Header */}
             <Box sx={{ px: 2, py: 1.5, background: style.headerBg, color: 'white' }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <Stack direction="row" spacing={1} alignItems="center">
-                        <TrendingDown size={18} style={{ opacity: 0.9 }} />
-                        <Typography variant="caption" fontWeight="bold" sx={{ textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                            Remaining Useful Life
+                        <Activity size={18} strokeWidth={2.5} />
+                        <Typography variant="caption" fontWeight="800" sx={{ textTransform: 'uppercase', letterSpacing: 1 }}>
+                            DIAGNOSTICS
                         </Typography>
                     </Stack>
                     <Chip
-                        icon={<style.Icon size={12} color="white" />}
-                        label={urgency === 'critical' ? 'Critical' : urgency === 'warning' ? 'Caution' : 'Healthy'}
+                        icon={<style.Icon size={14} color="white" strokeWidth={3} />}
+                        label={urgency.toUpperCase()}
                         size="small"
-                        sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white', fontWeight: 'bold', textTransform: 'uppercase', fontSize: '0.65rem', height: 22, '& .MuiChip-icon': { color: 'white' } }}
+                        sx={{
+                            bgcolor: 'rgba(0,0,0,0.2)',
+                            color: 'white',
+                            fontWeight: 'bold',
+                            fontSize: '0.7rem',
+                            height: 24,
+                            border: '1px solid rgba(255,255,255,0.2)'
+                        }}
                     />
                 </Box>
             </Box>
 
-            {/* Main Content */}
-            <CardContent sx={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2, p: { xs: 1.5, md: 2 } }}>
-                {/* RUL Display with Confidence */}
-                <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 2, flexWrap: 'nowrap' }}>
-                    <Box sx={{ flex: 1, minWidth: 0 }}>
-                        <Typography variant="caption" color="text.secondary" gutterBottom>Predicted Time to Failure</Typography>
-                        <Stack direction="row" alignItems="baseline" spacing={0.5}>
-                            <Typography variant="h4" fontWeight="bold" sx={{ color: style.color, lineHeight: 1 }}>
+            <CardContent sx={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2.5, p: { xs: 2, md: 2.5 } }}>
+
+                {/* Top Section: Countdown & Risk Gauge */}
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <Box>
+                        <Typography variant="caption" color="text.secondary" fontWeight="600" sx={{ letterSpacing: 0.5, textTransform: 'uppercase' }}>
+                            Estimated RUL
+                        </Typography>
+                        <Stack alignItems="flex-start" sx={{ mt: 0.5 }}>
+                            <Typography
+                                variant="h2"
+                                fontWeight="800"
+                                sx={{
+                                    fontFamily: '"JetBrains Mono", monospace',
+                                    color: style.color,
+                                    lineHeight: 0.9,
+                                    letterSpacing: -2
+                                }}
+                            >
                                 {rulDays < 1 ? '<24' : rulDays.toFixed(0)}
+                                <Box component="span" sx={{ fontSize: '1rem', ml: 1, color: 'text.secondary', fontWeight: 500, letterSpacing: 'normal' }}>
+                                    {rulDays < 1 ? 'HOURS' : 'DAYS'}
+                                </Box>
                             </Typography>
-                            <Typography variant="body1" color="text.secondary" fontWeight="medium">
-                                {rulDays < 1 ? 'hours' : 'days'}
+                            <Typography variant="caption" sx={{ mt: 0.5, color: 'text.secondary', fontWeight: '500' }}>
+                                Predicted Failure: <Box component="span" sx={{ color: 'text.primary', fontWeight: 'bold' }}>{dateString}</Box>
                             </Typography>
                         </Stack>
-                        <Typography variant="caption" color="text.disabled" sx={{ mt: 0.5, display: 'block', fontSize: '0.7rem' }}>
-                            95% CI: {rulLower.toFixed(0)} - {rulUpper.toFixed(0)} days
-                        </Typography>
                     </Box>
 
-                    {/* Circular Risk Gauge */}
-                    <Box sx={{ flexShrink: 0, position: 'relative', width: 64, height: 64 }}>
-                        <svg width="64" height="64" style={{ transform: 'rotate(-90deg)' }}>
-                            <circle cx="32" cy="32" r="28" stroke="#f1f5f9" strokeWidth="5" fill="none" />
+                    {/* Glowing Risk Gauge */}
+                    <Box sx={{ position: 'relative', width: 72, height: 72 }}>
+                        <svg width="72" height="72" style={{ transform: 'rotate(-90deg)' }}>
+                            {/* Track */}
+                            <circle cx="36" cy="36" r="30" stroke="#f1f5f9" strokeWidth="6" fill="none" />
+                            {/* Fill */}
                             <circle
-                                cx="32"
-                                cy="32"
-                                r="28"
-                                stroke="currentColor"
-                                strokeWidth="5"
+                                cx="36"
+                                cy="36"
+                                r="30"
+                                stroke={style.color}
+                                strokeWidth="6"
                                 fill="none"
-                                strokeDasharray={`${riskScore * 1.76} ${176 - riskScore * 1.76}`}
+                                strokeDasharray={`${riskScore * 1.88} ${188 - riskScore * 1.88}`}
                                 strokeLinecap="round"
-                                style={{ color: urgency === 'critical' ? '#dc2626' : urgency === 'warning' ? '#d97706' : '#059669' }}
+                                style={{
+                                    filter: urgency === 'critical' ? `drop-shadow(${style.glow})` : 'none',
+                                    transition: 'stroke-dasharray 1s ease-out'
+                                }}
                             />
                         </svg>
                         <Box sx={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                            <Typography variant="body1" fontWeight="bold" sx={{ color: style.color, lineHeight: 1 }}>{riskScore.toFixed(0)}</Typography>
-                            <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.6rem' }}>RISK</Typography>
+                            <Typography variant="h5" fontWeight="bold" sx={{ color: 'text.primary', lineHeight: 1 }}>
+                                {riskScore.toFixed(0)}
+                            </Typography>
+                            <Typography variant="caption" sx={{ fontSize: '0.6rem', fontWeight: 'bold', color: 'text.secondary' }}>RISK</Typography>
                         </Box>
                     </Box>
                 </Box>
 
-                {/* Life Progress Bar */}
+                {/* Shimmering Lifecycle Bar */}
                 <Box>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5, flexWrap: 'wrap', gap: 0.5 }}>
-                        <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: 'nowrap', fontSize: '0.7rem' }}>Lifecycle Progress</Typography>
-                        <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: 'nowrap', fontSize: '0.7rem' }}>{progress.toFixed(0)}% remaining</Typography>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                        <Typography variant="caption" fontWeight="bold" color="text.secondary" fontSize="0.7rem">LIFECYCLE CONSUMED</Typography>
+                        <Typography variant="caption" fontWeight="bold" fontSize="0.7rem">{progress.toFixed(0)}%</Typography>
                     </Box>
-                    <LinearProgress
-                        variant="determinate"
-                        value={progress}
-                        color={style.progressColor}
-                        sx={{ height: 6, borderRadius: 3, width: '100%' }}
-                    />
+                    <Box sx={{
+                        position: 'relative',
+                        height: 12,
+                        bgcolor: '#f1f5f9',
+                        borderRadius: 1,
+                        overflow: 'hidden',
+                        boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.05)'
+                    }}>
+                        {/* Active Bar with Shimmer */}
+                        <Box sx={{
+                            position: 'absolute',
+                            left: 0, top: 0, bottom: 0,
+                            width: `${progress}%`,
+                            background: urgency === 'critical'
+                                ? `linear-gradient(45deg, ${style.color} 25%, #ef4444 50%, ${style.color} 75%)`
+                                : style.color,
+                            backgroundSize: '200% 100%',
+                            animation: urgency === 'critical' ? 'shimmer 2s infinite linear' : 'none',
+                            '@keyframes shimmer': {
+                                '0%': { backgroundPosition: '100% 0' },
+                                '100%': { backgroundPosition: '-100% 0' }
+                            }
+                        }} />
+
+                        {/* Confidence Interval Overlay (Visual approx) */}
+                        {/* Only show if we have meaningful progress to overlay on */}
+                        <Box sx={{
+                            position: 'absolute',
+                            left: `${Math.max(0, progress - 5)}%`,
+                            width: '10%', // roughly representing CI width
+                            top: 0, bottom: 0,
+                            bgcolor: 'rgba(255,255,255,0.3)',
+                            borderLeft: '1px solid rgba(255,255,255,0.5)',
+                            borderRight: '1px solid rgba(255,255,255,0.5)'
+                        }} />
+                    </Box>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 0.5 }}>
+                        <Typography variant="caption" color="text.disabled" fontSize="0.6rem">Install</Typography>
+                        <Typography variant="caption" color="text.disabled" fontSize="0.6rem">End of Life</Typography>
+                    </Box>
                 </Box>
 
-                {/* Metrics Grid */}
-                <Grid container spacing={1}>
-                    <Grid item xs={4}>
-                        <Box sx={{ p: 1, borderRadius: 1.5, bgcolor: style.accentBg, height: '100%' }}>
-                            <Stack direction="row" spacing={0.5} alignItems="center" sx={{ mb: 0.5 }}>
-                                <Percent size={12} className="text-slate-500" />
-                                <Typography sx={{ fontSize: '0.6rem', fontWeight: 'bold', color: 'text.secondary' }}>FAIL PROB</Typography>
-                            </Stack>
-                            <Typography variant="body1" fontWeight="bold" sx={{ color: style.color }}>
-                                {failProb.toFixed(1)}%
-                            </Typography>
-                        </Box>
-                    </Grid>
-                    <Grid item xs={4}>
-                        <Box sx={{ p: 1, borderRadius: 1.5, bgcolor: style.accentBg, height: '100%' }}>
-                            <Stack direction="row" spacing={0.5} alignItems="center" sx={{ mb: 0.5 }}>
-                                <Activity size={12} className="text-slate-500" />
-                                <Typography sx={{ fontSize: '0.6rem', fontWeight: 'bold', color: 'text.secondary' }}>WEAR</Typography>
-                            </Stack>
-                            <Typography variant="body1" fontWeight="bold" sx={{ color: style.color }}>
-                                {degradation.toFixed(0)}%
-                            </Typography>
-                        </Box>
-                    </Grid>
-                    <Grid item xs={4}>
-                        <Box sx={{ p: 1, borderRadius: 1.5, bgcolor: style.accentBg, height: '100%' }}>
-                            <Stack direction="row" spacing={0.5} alignItems="center" sx={{ mb: 0.5 }}>
-                                <Calendar size={12} className="text-slate-500" />
-                                <Typography sx={{ fontSize: '0.6rem', fontWeight: 'bold', color: 'text.secondary' }}>SERVICE</Typography>
-                            </Stack>
-                            <Typography variant="body2" fontWeight="bold" sx={{ color: style.color, lineHeight: 1.2 }}>
-                                {getMaintenanceWindow()}
-                            </Typography>
-                        </Box>
-                    </Grid>
+                {/* Glassmorphic Metric Tiles */}
+                <Grid container spacing={1.5}>
+                    <MetricTile
+                        label="FAIL PROB"
+                        value={`${failProb.toFixed(1)}%`}
+                        icon={Percent}
+                        style={style}
+                        warning={failProb > 80}
+                    />
+                    <MetricTile
+                        label="WEAR LEVEL"
+                        value={`${degradation.toFixed(0)}%`}
+                        icon={Activity}
+                        style={style}
+                        warning={degradation > 80}
+                    />
+                    <MetricTile
+                        label="SERVICE"
+                        value={getMaintenanceWindow()}
+                        icon={Calendar}
+                        style={style}
+                        warning={getMaintenanceWindow() === 'IMMEDIATE'}
+                    />
                 </Grid>
 
-                {/* Confidence Breakdown */}
-                <Box sx={{ pt: 1.5, borderTop: 1, borderColor: 'divider' }}>
-                    <Typography sx={{ fontSize: '0.65rem', fontWeight: 'bold', color: 'text.secondary', display: 'block', mb: 1, textTransform: 'uppercase' }}>
-                        Failure Distribution
+                {/* Horizontal Failure Distribution */}
+                <Box>
+                    <Typography variant="caption" fontWeight="bold" color="text.secondary" sx={{ display: 'block', mb: 1, textTransform: 'uppercase', fontSize: '0.65rem' }}>
+                        Failure Distribution (Days)
                     </Typography>
-                    <Stack spacing={0.75}>
-                        <ProbabilityBar label="0-7 days" value={urgency === 'critical' ? failProb : failProb * 0.3} color="error" />
-                        <ProbabilityBar label="7-30 days" value={urgency === 'warning' ? failProb * 0.7 : failProb * 0.5} color="warning" />
-                        <ProbabilityBar label="30-90 days" value={urgency === 'healthy' ? failProb * 0.2 : failProb * 0.2} color="success" />
-                    </Stack>
+                    <Box sx={{ display: 'flex', height: 8, borderRadius: 4, overflow: 'hidden' }}>
+                        {/* Red Segment (0-7d) */}
+                        <Box sx={{ flex: urgency === 'critical' ? 5 : 1, bgcolor: '#ef4444', borderRight: '1px solid white' }} />
+                        {/* Amber Segment (7-30d) */}
+                        <Box sx={{ flex: urgency === 'warning' ? 4 : 2, bgcolor: '#f59e0b', borderRight: '1px solid white' }} />
+                        {/* Green Segment (30+d) */}
+                        <Box sx={{ flex: urgency === 'healthy' ? 5 : 2, bgcolor: '#10b981' }} />
+                    </Box>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 0.5 }}>
+                        <Typography variant="caption" color="error.main" fontWeight="bold" fontSize="0.6rem">0-7d</Typography>
+                        <Typography variant="caption" color="warning.main" fontWeight="bold" fontSize="0.6rem">7-30d</Typography>
+                        <Typography variant="caption" color="success.main" fontWeight="bold" fontSize="0.6rem">30d+</Typography>
+                    </Box>
                 </Box>
+
+                {/* Critical Action Button - Maintenance */}
+                {urgency === 'critical' && (
+                    <Box sx={{ mt: 'auto', pt: 1 }}>
+                        <Button
+                            fullWidth
+                            variant="contained"
+                            color="error"
+                            startIcon={<TriangleAlert size={16} />}
+                            onClick={() => onSchedule && onSchedule()}
+                            sx={{
+                                fontWeight: 'bold',
+                                boxShadow: '0 4px 6px rgba(220, 38, 38, 0.3)',
+                                animation: 'pulse 2s infinite'
+                            }}
+                        >
+                            SCHEDULE IMMEDIATE MAINTENANCE
+                        </Button>
+                    </Box>
+                )}
+
             </CardContent>
         </Card>
     );
 }
 
-// Sub-component for probability bars
-function ProbabilityBar({ label, value, color }) {
+function MetricTile({ label, value, icon: Icon, style, warning }) {
     return (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-            <Typography sx={{ fontSize: '0.7rem', color: 'text.secondary', width: 55, flexShrink: 0 }}>{label}</Typography>
-            <LinearProgress
-                variant="determinate"
-                value={Math.min(100, value)}
-                color={color}
-                sx={{ flex: 1, height: 5, borderRadius: 2.5 }}
-            />
-            <Typography sx={{ fontSize: '0.7rem', fontWeight: 'medium', width: 36, textAlign: 'right', flexShrink: 0 }}>
-                {value.toFixed(1)}%
-            </Typography>
-        </Box>
+        <Grid item xs={4}>
+            <Box sx={{
+                p: 1.5,
+                borderRadius: 2,
+                bgcolor: style.glassBg,
+                border: '1px solid',
+                borderColor: style.glassBorder,
+                backdropFilter: 'blur(4px)',
+                height: '100%',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'center'
+            }}>
+                <Stack direction="row" spacing={0.5} alignItems="center" sx={{ mb: 0.5, opacity: 0.8 }}>
+                    <Icon size={12} color={style.color} />
+                    <Typography sx={{ fontSize: '0.6rem', fontWeight: '800', color: style.color }}>{label}</Typography>
+                </Stack>
+                <Typography variant="body2" fontWeight="bold" sx={{ color: '#1e293b', lineHeight: 1.1 }}>
+                    {value}
+                </Typography>
+            </Box>
+        </Grid>
     );
 }
 

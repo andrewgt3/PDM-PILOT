@@ -10,18 +10,22 @@ joblib
 numpy
 fastapi
 uvicorn
+pydantic-settings
 xgboost
 
+asyncua==1.1.0
+watchdog==4.0.0
 # Testing & Auditing Tools
 ruff              # Linting and logic errors
 bandit            # Security vulnerability scanning
 locust            # Load testing
 pytest            # Unit testing
 httpx             # Async testing
+requests          # HTTP downloads (FEMTO, NASA data)
 
 # Authentication & Security
 python-jose[cryptography]  # JWT token handling
 passlib[bcrypt]            # Password hashing with bcrypt
 python-multipart           # Form data handling for OAuth2
 slowapi                    # Rate limiting for FastAPI
-
+scipy

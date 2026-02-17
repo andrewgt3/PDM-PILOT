@@ -25,40 +25,45 @@ from datetime import datetime, timedelta
 import json
 import xgboost as xgb
 import warnings
-from dotenv import load_dotenv
 
-load_dotenv()
+from config import get_settings
+
 warnings.filterwarnings('ignore')
 
 # =============================================================================
-# CONFIGURATION
+# CONFIGURATION (via Pydantic settings)
 # =============================================================================
 
-# Database connection
-DB_CONNECTION_STRING = os.getenv('DATABASE_URL')
-if not DB_CONNECTION_STRING:
-    raise ValueError("DATABASE_URL environment variable is required")
+settings = get_settings()
 
-# Feature engineering parameters
-ROLLING_WINDOW_SECONDS = 60  # 60-second rolling window
-LOOKBACK_DAYS = 7  # Analyze last 7 days
+# Database connection (uses sync DSN for pandas compatibility)
+DB_CONNECTION_STRING = (
+    f"postgresql://{settings.database.user}:"
+    f"{settings.database.password.get_secret_value()}@"
+    f"{settings.database.host}:{settings.database.port}/{settings.database.name}"
+)
+
+# Feature engineering parameters (from ModelSettings)
+ROLLING_WINDOW_SECONDS = settings.model.rolling_window_seconds
+LOOKBACK_DAYS = settings.model.lookback_days
 
 # Anomaly detection parameters
-CONTAMINATION_RATE = 0.01  # Top 1% most anomalous
+CONTAMINATION_RATE = settings.model.contamination_rate
 RANDOM_STATE = 42  # Reproducibility
 
 # Correlation parameters
-EVENT_LOOKBACK_MINUTES = 30  # Look for events 30 min before anomaly
+EVENT_LOOKBACK_MINUTES = settings.model.event_lookback_minutes
 
 # Output file
-OUTPUT_FILE = "insight_report.json"
+OUTPUT_FILE = settings.model.output_file
 
 # RUL Model
-RUL_MODEL_FILE = "rul_model.json"
+RUL_MODEL_DIR = settings.model.model_dir
+RUL_MODEL_PATTERN = "rul_model_v*.json"  # Glob pattern for versioned models
 
 # RUL Thresholds (hours)
-RUL_WARNING_THRESHOLD = 72  # 3 days - Pre-Failure Warning
-RUL_CRITICAL_THRESHOLD = 24  # 1 day - Imminent Failure
+RUL_WARNING_THRESHOLD = settings.model.rul_warning_threshold
+RUL_CRITICAL_THRESHOLD = settings.model.rul_critical_threshold
 
 # =============================================================================
 # STEP 1: DATABASE CONNECTION
@@ -83,24 +88,77 @@ def create_db_engine():
         print(f"❌ Database connection failed: {e}")
         raise
 
-def load_rul_model(model_path=RUL_MODEL_FILE):
-    """Load the trained XGBoost RUL prediction model."""
+def load_rul_model(model_dir=RUL_MODEL_DIR):
+    """
+    Load the latest versioned XGBoost RUL prediction model.
+    
+    Scans models/ directory for versioned model files (rul_model_v*.json)
+    and loads the most recent one based on filename timestamp.
+    """
+    import glob
+    import os
+    from logger import get_logger
+    
+    logger = get_logger("analytics_engine")
+    
     print("=" * 80)
     print("LOADING RUL PREDICTION MODEL")
     print("=" * 80)
     
     try:
+        # Scan for versioned model files
+        pattern = os.path.join(model_dir, "rul_model_v*.json")
+        model_files = glob.glob(pattern)
+        
+        # Filter out metadata files
+        model_files = [f for f in model_files if "_meta.json" not in f]
+        
+        if not model_files:
+            # Fallback to legacy static file
+            legacy_path = "rul_model.json"
+            if os.path.exists(legacy_path):
+                model = xgb.XGBRegressor()
+                model.load_model(legacy_path)
+                print(f"✓ Loaded legacy RUL model from: {legacy_path}")
+                logger.info("model_loaded", version="legacy", path=legacy_path)
+                return model
+            else:
+                raise FileNotFoundError(f"No model files found in {model_dir}/ or {legacy_path}")
+        
+        # Sort by filename (timestamp in name ensures chronological order)
+        model_files.sort()
+        latest_model_path = model_files[-1]
+        
+        # Extract version from filename (e.g., rul_model_v1_20241224.json -> v1_20241224)
+        filename = os.path.basename(latest_model_path)
+        version = filename.replace("rul_model_", "").replace(".json", "")
+        
+        # Load the model
         model = xgb.XGBRegressor()
-        model.load_model(model_path)
-        print(f"✓ Loaded XGBoost RUL model from: {model_path}")
-        print(f"  Features: vibration, vibration_rate, time_pct")
+        model.load_model(latest_model_path)
+        
+        print(f"✓ Loaded XGBoost RUL model")
+        print(f"  Version: {version}")
+        print(f"  Path: {latest_model_path}")
+        print(f"  Available models: {len(model_files)}")
         print(f"  Thresholds: Warning={RUL_WARNING_THRESHOLD}h, Critical={RUL_CRITICAL_THRESHOLD}h")
         print()
+        
+        # Log with structlog
+        logger.info(
+            "model_loaded",
+            version=version,
+            path=latest_model_path,
+            available_models=len(model_files),
+        )
+        
         return model
+        
     except Exception as e:
         print(f"❌ Failed to load RUL model: {e}")
         print(f"   Continuing without RUL predictions...")
         print()
+        logger.warning("model_load_failed", error=str(e))
         return None
 
 # =============================================================================
@@ -292,12 +350,36 @@ def correlate_with_events(df, events_df, rul_model, lookback_minutes=EVENT_LOOKB
         
         if rul_model is not None:
             try:
+                # Import validation from shared schema
+                from schemas.ml import ModelFeatures
+                from logger import get_logger
+                
+                logger = get_logger("analytics_engine")
+                
                 # Prepare features for RUL prediction
+                # Note: Legacy model uses 3 features. Full schema has 26 features.
+                # Once training data includes all 26 features, use ModelFeatures.to_array()
+                
                 # Calculate vibration_rate if not present
                 if 'vibration_rate' not in anomaly or pd.isna(anomaly.get('vibration_rate')):
                     vib_rate = 0.0
                 else:
                     vib_rate = anomaly['vibration_rate']
+                
+                # Build feature dict for validation logging
+                feature_dict = {
+                    'vibration_x': float(anomaly['vibration_x']),
+                    'vibration_rate': float(vib_rate),
+                    'time_pct': float(anomaly['time_pct']),
+                }
+                
+                # Log inference input for audit trail
+                logger.debug(
+                    "rul_inference_input",
+                    features=feature_dict,
+                    expected_schema="ModelFeatures (26 features)",
+                    actual_features=3,
+                )
                 
                 features = np.array([[
                     anomaly['vibration_x'],
@@ -306,6 +388,15 @@ def correlate_with_events(df, events_df, rul_model, lookback_minutes=EVENT_LOOKB
                 ]])
                 
                 predicted_rul = float(rul_model.predict(features)[0])
+                
+                # Log inference_run event for ML observability
+                logger.info(
+                    "inference_run",
+                    model_version=version if 'version' in dir() else "unknown",
+                    input_shape=list(features.shape),
+                    prediction_score=round(predicted_rul, 2),
+                    prediction_type="rul_hours",
+                )
                 
                 # Determine severity based on RUL
                 if predicted_rul < RUL_CRITICAL_THRESHOLD:

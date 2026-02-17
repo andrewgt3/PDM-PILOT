@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>USS AETHELRED (DDG-2001) - PROPULSION SYSTEMS</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link
+        href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Rajdhani:wght@400;600;700&display=swap"
+        rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'dod-dark': '#0a0f14',
+                        'dod-panel': '#111820',
+                        'dod-border': '#2c3e50',
+                        'dod-cyan': '#00f0ff',
+                        'dod-cyan-dim': 'rgba(0, 240, 255, 0.1)',
+                        'dod-amber': '#ffaa00',
+                        'dod-red': '#ff3333',
+                        'dod-red-dim': 'rgba(255, 51, 51, 0.1)',
+                        'dod-green': '#00ff66',
+                    },
+                    fontFamily: {
+                        'mono': ['"JetBrains Mono"', 'monospace'],
+                        'display': ['"Rajdhani"', 'sans-serif'],
+                    },
+                    boxShadow: {
+                        'glow-cyan': '0 0 10px rgba(0, 240, 255, 0.3)',
+                        'glow-red': '0 0 15px rgba(255, 51, 51, 0.4)',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background-color: #050505;
+            color: #ecf0f1;
+            background-image:
+                linear-gradient(rgba(0, 240, 255, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 240, 255, 0.03) 1px, transparent 1px);
+            background-size: 40px 40px;
+        }
+
+        .scan-line {
+            width: 100%;
+            height: 2px;
+            background: rgba(0, 240, 255, 0.1);
+            position: fixed;
+            top: 0;
+            left: 0;
+            animation: scan 6s linear infinite;
+            pointer-events: none;
+            z-index: 50;
+        }
+
+        @keyframes scan {
+            0% {
+                top: -10%;
+            }
+
+            100% {
+                top: 110%;
+            }
+        }
+
+        .hud-border {
+            position: relative;
+            border: 1px solid #2c3e50;
+            background: rgba(17, 24, 32, 0.8);
+            backdrop-filter: blur(4px);
+        }
+
+        .hud-border::before {
+            content: '';
+            position: absolute;
+            top: -1px;
+            left: -1px;
+            width: 10px;
+            height: 10px;
+            border-top: 2px solid #00f0ff;
+            border-left: 2px solid #00f0ff;
+        }
+
+        .hud-border::after {
+            content: '';
+            position: absolute;
+            bottom: -1px;
+            right: -1px;
+            width: 10px;
+            height: 10px;
+            border-bottom: 2px solid #00f0ff;
+            border-right: 2px solid #00f0ff;
+        }
+
+        .hud-corner-tr {
+            position: absolute;
+            top: -1px;
+            right: -1px;
+            width: 10px;
+            height: 10px;
+            border-top: 2px solid #00f0ff;
+            border-right: 2px solid #00f0ff;
+        }
+
+        .hud-corner-bl {
+            position: absolute;
+            bottom: -1px;
+            left: -1px;
+            width: 10px;
+            height: 10px;
+            border-bottom: 2px solid #00f0ff;
+            border-left: 2px solid #00f0ff;
+        }
+
+        .text-glow {
+            text-shadow: 0 0 5px rgba(0, 240, 255, 0.5);
+        }
+
+        .text-glow-red {
+            text-shadow: 0 0 5px rgba(255, 51, 51, 0.5);
+        }
+
+        .blink {
+            animation: blink 1.5s infinite;
+        }
+
+        @keyframes blink {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.4;
+            }
+        }
+
+        .grid-bg {
+            background-image: radial-gradient(#2c3e50 1px, transparent 1px);
+            background-size: 20px 20px;
+            opacity: 0.2;
+        }
+
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #0a0f14;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #2c3e50;
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #00f0ff;
+        }
+    </style>
+</head>
+
+<body class="h-screen overflow-hidden font-display flex flex-col">
+
+    <div class="scan-line"></div>
+
+    <!-- HEADER -->
+    <header class="h-16 border-b border-dod-border bg-dod-panel flex justify-between items-center px-6 relative z-10">
+        <div class="flex items-center gap-4">
+            <div
+                class="w-10 h-10 border border-dod-cyan rounded-full flex items-center justify-center shadow-glow-cyan">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-dod-cyan" fill="none" viewBox="0 0 24 24"
+                    stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M19.428 15.428a2 2 0 00-1.022-.547l-2.384-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+                </svg>
+            </div>
+            <div>
+                <h1 class="text-2xl font-bold tracking-widest text-white">USS AETHELRED <span
+                        class="text-dod-cyan text-base font-mono align-middle ml-2">(DDG-2001)</span></h1>
+                <div class="flex items-center gap-2 text-xs font-mono text-gray-400">
+                    <span>MISSION STATUS: <span class="text-dod-green">ACTIVE</span></span>
+                    <span class="text-dod-border">|</span>
+                    <span>SYSTEM TIME: <span id="clock" class="text-dod-cyan">2026.02.12 14:35:22 ZULU</span></span>
+                </div>
+            </div>
+        </div>
+
+        <div class="flex items-center gap-6">
+            <div
+                class="bg-dod-red-dim border border-dod-red px-4 py-1 rounded text-dod-red font-bold text-sm blink flex items-center gap-2 shadow-glow-red">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
+                    stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                CRITICAL MAINT ALERT
+            </div>
+            <div class="font-mono text-xs text-right">
+                <div class="text-gray-400">CONN STATUS</div>
+                <div class="text-dod-cyan">SECURE LINK [98%]</div>
+            </div>
+        </div>
+    </header>
+
+    <!-- MAIN CONTENT GRID -->
+    <main class="flex-grow p-4 grid grid-cols-12 gap-4">
+
+        <!-- LEFT COLUMN: SENSOR METRICS -->
+        <div class="col-span-3 flex flex-col gap-4">
+            <!-- Thermal Variance -->
+            <div class="hud-border p-4 flex-1 flex flex-col justify-between">
+                <div class="hud-corner-tr"></div>
+                <div class="hud-corner-bl"></div>
+                <div class="flex justify-between items-start mb-2">
+                    <h3 class="text-sm font-bold text-gray-400 tracking-wider">THERMAL VARIANCE</h3>
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-dod-red" fill="none" viewBox="0 0 24 24"
+                        stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                    </svg>
+                </div>
+                <div class="text-5xl font-mono font-bold text-dod-red text-glow-red mt-2">+18°C</div>
+                <div class="text-xs text-gray-500 font-mono mb-4">ABOVE BASELINE (72°C)</div>
+                <!-- Mock Graph -->
+                <div class="h-24 w-full bg-dod-dark border border-gray-800 relative overflow-hidden">
+                    <svg class="absolute bottom-0 left-0 w-full h-full" preserveAspectRatio="none">
+                        <path d="M0,80 L20,78 L40,75 L60,60 L80,50 L100,45 L120,40 L140,20 L160,10 L200,5 L300,0"
+                            stroke="#ff3333" stroke-width="2" fill="none" vector-effect="non-scaling-stroke"></path>
+                        <path
+                            d="M0,80 L20,78 L40,75 L60,60 L80,50 L100,45 L120,40 L140,20 L160,10 L200,5 L300,0 V100 H0 Z"
+                            fill="rgba(255, 51, 51, 0.2)"></path>
+                    </svg>
+                    <div class="absolute top-0 right-0 p-1 text-[10px] text-dod-red">CRITICAL</div>
+                </div>
+            </div>
+
+            <!-- Vibration -->
+            <div class="hud-border p-4 flex-1 flex flex-col justify-between">
+                <div class="hud-corner-tr"></div>
+                <div class="hud-corner-bl"></div>
+                <div class="flex justify-between items-start mb-2">
+                    <h3 class="text-sm font-bold text-gray-400 tracking-wider">VIBRATION AMPLITUDE</h3>
+                    <div class="w-2 h-2 rounded-full bg-dod-red blink"></div>
+                </div>
+                <div class="text-5xl font-mono font-bold text-dod-red text-glow-red mt-2">+40%</div>
+                <div class="text-xs text-gray-500 font-mono mb-4">HARMONIC IMBALANCE DETECTED</div>
+                <!-- Mock Waveform -->
+                <div class="h-24 w-full bg-dod-dark border border-gray-800 flex items-end px-1 gap-px">
+                    <div class="w-1 bg-dod-red opacity-80 h-[20%]"></div>
+                    <div class="w-1 bg-dod-red opacity-80 h-[30%]"></div>
+                    <div class="w-1 bg-dod-red opacity-80 h-[25%]"></div>
+                    <div class="w-1 bg-dod-red opacity-80 h-[60%]"></div>
+                    <div class="w-1 bg-dod-red opacity-80 h-[40%]"></div>
+                    <div class="w-1 bg-dod-red opacity-80 h-[90%]"></div>
+                    <div class="w-1 bg-dod-red opacity-80 h-[50%]"></div>
+                    <div class="w-1 bg-dod-red opacity-80 h-[35%]"></div>
+                    <div class="w-1 bg-dod-red opacity-80 h-[80%]"></div>
+                    <div class="w-1 bg-dod-red opacity-80 h-[45%]"></div>
+                    <div class="w-1 bg-dod-red opacity-80 h-[30%]"></div>
+                    <div class="w-1 bg-dod-red opacity-80 h-[70%]"></div>
+                    <div class="w-1 bg-dod-red opacity-80 h-[100%]"></div>
+                    <div class="w-1 bg-dod-red opacity-80 h-[60%]"></div>
+                    <div class="w-1 bg-dod-red opacity-80 h-[40%]"></div>
+                    <div class="w-1 bg-dod-red opacity-80 h-[20%]"></div>
+                    <!-- Repeat somewhat for visual -->
+                    <div class="w-1 bg-dod-red opacity-80 h-[30%]"></div>
+                    <div class="w-1 bg-dod-red opacity-80 h-[50%]"></div>
+                    <div class="w-1 bg-dod-red opacity-80 h-[80%]"></div>
+                    <div class="w-1 bg-dod-red opacity-80 h-[40%]"></div>
+                </div>
+            </div>
+
+            <!-- Oil Pressure -->
+            <div class="hud-border p-4 flex-1 flex flex-col justify-between">
+                <div class="hud-corner-tr"></div>
+                <div class="hud-corner-bl"></div>
+                <div class="flex justify-between items-start mb-2">
+                    <h3 class="text-sm font-bold text-gray-400 tracking-wider">OIL PRESSURE</h3>
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-dod-amber" fill="none"
+                        viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6" />
+                    </svg>
+                </div>
+                <div class="text-4xl font-mono font-bold text-dod-amber mt-2">-0.3 PSI<span class="text-lg">/hr</span>
+                </div>
+                <div class="text-xs text-gray-500 font-mono mb-4">GRADUAL DECLINE TRENDING</div>
+                <!-- Mock Trend Line -->
+                <div class="h-16 w-full relative border-t border-b border-gray-800 mt-2">
+                    <div class="absolute top-1/2 w-full border-t border-dashed border-gray-700"></div>
+                    <svg class="absolute top-0 left-0 w-full h-full" preserveAspectRatio="none">
+                        <path d="M0,10 L50,15 L100,20 L150,30 L200,45 L250,55 L300,60" stroke="#ffaa00" stroke-width="2"
+                            fill="none"></path>
+                    </svg>
+                </div>
+            </div>
+        </div>
+
+        <!-- CENTER: ENGINE DIGITAL TWIN & PREDICTION -->
+        <div class="col-span-6 flex flex-col gap-4">
+            <!-- Alert Banner -->
+            <div class="bg-red-900/20 border-l-4 border-dod-red p-4 flex items-center justify-between backdrop-blur-sm">
+                <div>
+                    <h2 class="text-dod-red font-bold text-xl tracking-widest text-glow-red">FAILURE PREDICTION: 89%
+                        CONFIDENCE</h2>
+                    <p class="text-red-300 text-sm font-mono mt-1">PORT ENGINE MAIN BEARING DEGRADATION DETECTED</p>
+                </div>
+                <div class="text-right">
+                    <div class="text-xs text-red-400 font-mono uppercase">Severity</div>
+                    <div class="text-lg font-bold text-white">CRITICAL (L1)</div>
+                </div>
+            </div>
+
+            <!-- 3D Vis Container -->
+            <div class="hud-border flex-grow relative overflow-hidden bg-gradient-to-b from-[#0a1018] to-[#05080c]">
+                <div class="hud-corner-tr"></div>
+                <div class="hud-corner-bl"></div>
+
+                <!-- Grid Overlay -->
+                <div class="absolute inset-0 grid-bg"></div>
+
+                <!-- Central Text / Schematic Placeholder -->
+                <div class="absolute inset-0 flex items-center justify-center">
+                    <!-- Simple CSS Shape for Engine Schematic -->
+                    <div class="relative w-96 h-64 border border-dod-cyan-dim rounded opacity-80 transform scale-125">
+                        <!-- Engine Body -->
+                        <div class="absolute top-10 left-10 right-10 bottom-10 border-2 border-dod-cyan/30 rounded-lg">
+                        </div>
+                        <!-- Shaft -->
+                        <div class="absolute top-1/2 left-0 right-0 h-4 bg-dod-cyan/20 -translate-y-1/2"></div>
+                        <!-- Bearing Location (Faulty) -->
+                        <div
+                            class="absolute top-1/2 left-1/3 w-8 h-12 border-2 border-dod-red bg-dod-red/20 -translate-y-1/2 -translate-x-1/2 shadow-glow-red animate-pulse">
+                        </div>
+                        <!-- Bearing Label -->
+                        <div class="absolute top-1/2 left-1/3 mt-10 -ml-16">
+                            <div class="h-8 w-px bg-dod-red absolute left-1/2 -top-8"></div>
+                            <div
+                                class="bg-dod-red/10 border border-dod-red px-2 py-1 text-[10px] text-dod-red font-mono whitespace-nowrap">
+                                MAIN BEARING #2<br>FAULT DETECTED
+                            </div>
+                        </div>
+
+                        <!-- Labels -->
+                        <div class="absolute top-4 right-4 text-xs font-mono text-dod-cyan/50">LM2500 GAS TURBINE</div>
+                    </div>
+                </div>
+
+                <!-- HUD Overlays -->
+                <div class="absolute top-4 left-4 font-mono text-xs text-dod-cyan opacity-70">
+                    <div>RPM: <span class="text-white">3250</span></div>
+                    <div>LOAD: <span class="text-white">85%</span></div>
+                    <div>TORQUE: <span class="text-white">124 kNm</span></div>
+                </div>
+
+                <div class="absolute bottom-4 right-4 flex gap-2">
+                    <button
+                        class="px-3 py-1 border border-dod-cyan text-dod-cyan text-xs font-mono hover:bg-dod-cyan/10">ROTATE</button>
+                    <button
+                        class="px-3 py-1 border border-dod-cyan text-dod-cyan text-xs font-mono hover:bg-dod-cyan/10">EXPLODE</button>
+                    <button
+                        class="px-3 py-1 bg-dod-cyan text-black text-xs font-mono font-bold hover:bg-dod-cyan/80">ISOLATE
+                        FAULT</button>
+                </div>
+            </div>
+
+            <!-- Health Index Bar -->
+            <div class="h-12 hud-border p-2 flex items-center gap-4">
+                <div class="text-xs font-mono text-gray-400 w-24">HEALTH INDEX</div>
+                <div class="flex-grow bg-gray-800 h-4 rounded-sm overflow-hidden relative">
+                    <div class="absolute top-0 left-0 h-full w-[32%] bg-gradient-to-r from-dod-red to-orange-500"></div>
+                    <div class="absolute top-0 right-0 h-full w-px bg-white/20"></div> <!-- Marker 100% -->
+                </div>
+                <div class="text-xl font-bold font-mono text-dod-red">32%</div>
+            </div>
+        </div>
+
+        <!-- RIGHT COLUMN: PREDICTION & ACTIONS -->
+        <div class="col-span-3 flex flex-col gap-4">
+
+            <!-- Timeline Prediction -->
+            <div class="hud-border p-4 bg-dod-panel">
+                <div class="hud-corner-tr"></div>
+                <div class="hud-corner-bl"></div>
+                <h3 class="text-sm font-bold text-gray-400 tracking-wider mb-4 border-b border-gray-700 pb-2">PREDICTED
+                    EVENT HORIZON</h3>
+
+                <div class="relative h-48 border-l border-b border-gray-600 mb-2">
+                    <!-- Y Axis Labels -->
+                    <div class="absolute -left-6 top-0 text-[10px] text-gray-500">1.0</div>
+                    <div class="absolute -left-6 bottom-0 text-[10px] text-gray-500">0.0</div>
+
+                    <!-- Graph Lines -->
+                    <!-- Normal Operation -->
+                    <div class="absolute bottom-1/2 left-0 w-1/3 h-px bg-dod-cyan opacity-50"></div>
+
+                    <!-- Predicted Failure Curve -->
+                    <svg class="absolute inset-0 w-full h-full overflow-visible">
+                        <!-- Current Time Marker -->
+                        <line x1="33%" y1="0" x2="33%" y2="100%" stroke="#fff" stroke-dasharray="2,2" opacity="0.5">
+                        </line>
+                        <text x="33%" y="-5" fill="white" font-size="10" font-family="monospace"
+                            text-anchor="middle">NOW</text>
+
+                        <!-- Failure Range -->
+                        <rect x="70%" y="0" width="20%" height="100%" fill="url(#grad1)" opacity="0.3"></rect>
+                        <defs>
+                            <linearGradient id="grad1" x1="0%" y1="0%" x2="0%" y2="100%">
+                                <stop offset="0%" style="stop-color:rgb(255,0,0);stop-opacity:1" />
+                                <stop offset="100%" style="stop-color:rgb(255,0,0);stop-opacity:0" />
+                            </linearGradient>
+                        </defs>
+
+                        <!-- Danger Curve -->
+                        <path d="M 0 100 Q 100 100, 100 80 T 200 40 T 300 0" fill="none" stroke="#ffaa00"
+                            stroke-width="2" stroke-dasharray="4,2"></path>
+                    </svg>
+
+                    <!-- Prediction Box -->
+                    <div class="absolute top-4 right-2 text-right">
+                        <div class="text-[10px] text-red-400">EST. FAILURE</div>
+                        <div class="text-xl font-bold text-dod-red font-mono">4-6 DAYS</div>
+                    </div>
+                </div>
+                <div class="flex justify-between text-[10px] font-mono text-gray-500">
+                    <span>-48H</span>
+                    <span>NOW</span>
+                    <span>+48H</span>
+                    <span>+96H</span>
+                </div>
+            </div>
+
+            <!-- Recommended Actions -->
+            <div class="hud-border p-4 flex-grow flex flex-col">
+                <div class="hud-corner-tr"></div>
+                <div class="hud-corner-bl"></div>
+                <h3 class="text-sm font-bold text-gray-400 tracking-wider mb-4 border-b border-gray-700 pb-2">
+                    RECOMMENDED ACTIONS</h3>
+
+                <div class="flex flex-col gap-3">
+                    <div
+                        class="bg-gray-900 border border-gray-700 p-3 hover:border-dod-cyan transition-colors group cursor-pointer">
+                        <div class="flex justify-between items-center mb-1">
+                            <span class="text-dod-cyan font-bold text-sm group-hover:text-white">INITIATE
+                                REPLACEMENT</span>
+                            <span
+                                class="text-[10px] bg-dod-cyan/10 text-dod-cyan px-1 border border-dod-cyan/30">PRIORITY
+                                1</span>
+                        </div>
+                        <p class="text-xs text-gray-400">Schedule emergency bearing replacement for Port Engine during
+                            upcoming port call.</p>
+                        <button
+                            class="mt-2 w-full bg-dod-cyan/10 text-dod-cyan border border-dod-cyan text-xs py-1 font-bold hover:bg-dod-cyan hover:text-black transition-all">EXECUTE
+                            PLAN</button>
+                    </div>
+
+                    <div
+                        class="bg-gray-900 border border-gray-700 p-3 hover:border-dod-amber transition-colors group cursor-pointer">
+                        <div class="flex justify-between items-center mb-1">
+                            <span class="text-dod-amber font-bold text-sm group-hover:text-white">REDUCE LOAD</span>
+                            <span
+                                class="text-[10px] bg-dod-amber/10 text-dod-amber px-1 border border-dod-amber/30">IMMEDIATE</span>
+                        </div>
+                        <p class="text-xs text-gray-400">Reduce Port Engine output to 60% to extend bearing life by
+                            estimated 24h.</p>
+                        <button
+                            class="mt-2 w-full bg-dod-amber/10 text-dod-amber border border-dod-amber text-xs py-1 font-bold hover:bg-dod-amber hover:text-black transition-all">APPLY
+                            LIMITS</button>
+                    </div>
+
+                    <div
+                        class="bg-gray-900 border border-gray-700 p-3 opacity-60 hover:opacity-100 transition-opacity cursor-pointer">
+                        <div class="flex justify-between items-center mb-1">
+                            <span class="text-gray-300 font-bold text-sm">SCHEDULE DOCKING</span>
+                            <span class="text-[10px] border border-gray-600 text-gray-500 px-1">REVIEW</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Chat / Log Snippet -->
+            <div class="hud-border p-2 bg-black h-32 overflow-hidden text-xs font-mono">
+                <div class="text-gray-500 border-b border-gray-800 pb-1 mb-1">GAIA INTELLIGENCE LOG</div>
+                <div class="flex flex-col gap-1 text-gray-400">
+                    <div><span class="text-dod-cyan">[14:30]</span> Analyzing vibration harmonics...</div>
+                    <div><span class="text-dod-cyan">[14:31]</span> <span class="text-dod-red">ALERT:</span> Pattern
+                        match #8821 (Bearing Wear)</div>
+                    <div><span class="text-dod-cyan">[14:32]</span> Correlating with thermal sensors...</div>
+                    <div><span class="text-dod-cyan">[14:32]</span> Confidence score updated: 89%</div>
+                    <div><span class="text-dod-cyan">[14:33]</span> Generating maintenance schedule...</div>
+                </div>
+            </div>
+
+        </div>
+
+    </main>
+
+    <!-- FOOTER -->
+    <footer
+        class="h-8 bg-dod-panel border-t border-dod-border flex items-center justify-between px-4 text-[10px] font-mono text-gray-500">
+        <div>SYSTEM VERSION: GAIA-NAVAL-v2.4.1 // SECURE TERMINAL</div>
+        <div class="flex gap-4">
+            <span>CPU: 12%</span>
+            <span>MEM: 44%</span>
+            <span>NET: 1.2GB/s</span>
+            <span class="text-dod-green">ONLINE</span>
+        </div>
+    </footer>
+
+    <script>
+        // Simple Clock
+        setInterval(() => {
+            const now = new Date();
+            const timeString = now.toISOString().replace('T', ' ').split('.')[0] + ' ZULU';
+            document.getElementById('clock').innerText = timeString;
+        }, 1000);
+    </script>
+</body>
+
+</html>

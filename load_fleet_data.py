@@ -56,8 +56,8 @@ def load_fleet_data():
         )
         """))
         
-        # Create hypertable
-        conn.execute(text("SELECT create_hypertable('sensors', 'timestamp')"))
+        # Create hypertable (Optional: Requires TimescaleDB)
+        # conn.execute(text("SELECT create_hypertable('sensors', 'timestamp')"))
         
         # Create events table
         conn.execute(text("""

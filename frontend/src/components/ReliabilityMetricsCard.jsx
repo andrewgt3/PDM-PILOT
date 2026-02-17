@@ -1,21 +1,20 @@
 import React, { useState, useEffect } from 'react';
-import { Clock, RotateCcw, TrendingUp, TrendingDown, Target, RefreshCw } from 'lucide-react';
-import { Card, Box, Typography, IconButton, Chip, Stack, CircularProgress, Divider, Grid } from '@mui/material';
+import { Clock, RotateCcw, TrendingUp, TrendingDown, Target, RefreshCw, BarChart2, AlertTriangle, ArrowRight } from 'lucide-react';
+import { Card, Box, Typography, IconButton, Chip, Stack, CircularProgress, Divider, Grid, LinearProgress, Button, alpha } from '@mui/material';
 
 /**
  * ReliabilityMetricsCard Component
  * 
- * Displays MTBF (Mean Time Between Failures) and MTTR (Mean Time To Repair)
- * Fetches real data from the enterprise API.
+ * High-Density Performance Dashboard showing MTBF, MTTR, and OEE.
+ * Features industrial "Bullet Charts" for target visualization.
  */
 function ReliabilityMetricsCard({ machineId }) {
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [isHovered, setIsHovered] = useState(false);
 
     // Fetch reliability metrics from API
     const fetchMetrics = async () => {
-        if (!machineId) return;
-
         setLoading(true);
         try {
             const response = await fetch(`http://localhost:8000/api/enterprise/reliability/${machineId}`);
@@ -24,19 +23,22 @@ function ReliabilityMetricsCard({ machineId }) {
                 setData(result);
             } else {
                 setData({
-                    mtbf_hours: 720,
-                    mttr_hours: 2.5,
+                    mtbf_hours: 840,
+                    mttr_hours: 3.2,
                     availability_percent: 99.6,
-                    failure_count_ytd: 3,
-                    total_uptime_hours: 7200
+                    oee_percent: 88.5,
+                    failure_count_ytd: 2,
+                    total_uptime_hours: 8100
                 });
             }
         } catch (err) {
             console.error('[Reliability API Error]', err);
+            // Fallback mock
             setData({
                 mtbf_hours: 720,
                 mttr_hours: 2.5,
                 availability_percent: 99.6,
+                oee_percent: 85.0,
                 failure_count_ytd: 3,
                 total_uptime_hours: 7200
             });
@@ -50,117 +52,180 @@ function ReliabilityMetricsCard({ machineId }) {
     }, [machineId]);
 
     const benchmarks = {
-        mtbf: { good: 720, warning: 360 }, // hours
-        mttr: { good: 2, warning: 4 }       // hours
+        mtbf: { target: 1000, warning: 500, max: 1500 }, // hours
+        mttr: { target: 2.0, warning: 4.0, max: 8.0 },   // hours (lower is better)
+        oee: { target: 90, warning: 75, max: 100 }       // percent
     };
 
-    const mtbf = data?.mtbf_hours || 720;
-    const mttr = data?.mttr_hours || 2.5;
+    const mtbf = data?.mtbf_hours || 0;
+    const mttr = data?.mttr_hours || 0;
+    const oee = data?.oee_percent || 85.0; // Simulated OEE if missing
     const availability = data?.availability_percent || 99.6;
     const failureCount = data?.failure_count_ytd || 0;
     const totalUptime = data?.total_uptime_hours || 0;
 
-    const mtbfStatus = mtbf >= benchmarks.mtbf.good ? 'good' :
-        mtbf >= benchmarks.mtbf.warning ? 'warning' : 'critical';
-    const mttrStatus = mttr <= benchmarks.mttr.good ? 'good' :
-        mttr <= benchmarks.mttr.warning ? 'warning' : 'critical';
+    // Status Logic
+    const mtbfStatus = mtbf >= benchmarks.mtbf.target ? 'good' : mtbf >= benchmarks.mtbf.warning ? 'warning' : 'critical';
+    const mttrStatus = mttr <= benchmarks.mttr.target ? 'good' : mttr <= benchmarks.mttr.warning ? 'warning' : 'critical';
+    const oeeStatus = oee >= benchmarks.oee.target ? 'good' : oee >= benchmarks.oee.warning ? 'warning' : 'critical';
 
     const statusConfig = {
-        good: { color: 'success', bg: '#ecfdf5' },
-        warning: { color: 'warning', bg: '#fffbeb' },
-        critical: { color: 'error', bg: '#fef2f2' }
+        good: { color: 'success', bg: '#f0fdf4', text: '#166534' },
+        warning: { color: 'warning', bg: '#fefce8', text: '#854d0e' },
+        critical: { color: 'error', bg: '#fef2f2', text: '#991b1b' }
     };
 
     if (loading) {
         return (
             <Card variant="outlined" sx={{ height: '100%', borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <CircularProgress />
+                <CircularProgress size={30} />
             </Card>
         );
     }
 
+    // Helper for Bullet Chart
+    const BulletChart = ({ value, max, target, type = 'high-good' }) => {
+        const percent = Math.min((value / max) * 100, 100);
+        const targetPercent = (target / max) * 100;
+
+        // Color logic based on type
+        let barColor = 'primary.main';
+        if (type === 'high-good') {
+            barColor = value >= target ? 'success.main' : value >= target * 0.7 ? 'warning.main' : 'error.main';
+        } else {
+            barColor = value <= target ? 'success.main' : value <= target * 1.5 ? 'warning.main' : 'error.main';
+        }
+
+        return (
+            <Box sx={{ position: 'relative', height: 8, bgcolor: 'grey.200', borderRadius: 1, mt: 1, overflow: 'hidden' }}>
+                {/* Standard Range Marker (Background) */}
+                <Box sx={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${targetPercent}%`, bgcolor: alpha('#000', 0.05) }} />
+
+                {/* Value Bar */}
+                <Box sx={{
+                    position: 'absolute', left: 0, top: 0, bottom: 0,
+                    width: `${percent}%`,
+                    bgcolor: barColor,
+                    transition: 'width 0.5s ease'
+                }} />
+
+                {/* Target Marker */}
+                <Box sx={{
+                    position: 'absolute', left: `${targetPercent}%`, top: 0, bottom: 0,
+                    width: 2, bgcolor: 'text.primary', zIndex: 2
+                }} />
+            </Box>
+        );
+    };
+
     return (
-        <Card variant="outlined" sx={{ height: '100%', borderRadius: 2, display: 'flex', flexDirection: 'column' }}>
+        <Card
+            variant="outlined"
+            onMouseEnter={() => setIsHovered(true)}
+            onMouseLeave={() => setIsHovered(false)}
+            sx={{ height: '100%', borderRadius: 2, display: 'flex', flexDirection: 'column', position: 'relative' }}
+        >
+            {/* Hover Reveal Button */}
+            <Box
+                sx={{
+                    position: 'absolute', top: 12, right: 12, zIndex: 10,
+                    opacity: isHovered ? 1 : 0, transition: 'opacity 0.2s',
+                    transform: isHovered ? 'translateY(0)' : 'translateY(-5px)'
+                }}
+            >
+                <Button
+                    variant="outlined" size="small"
+                    endIcon={<ArrowRight size={14} />}
+                    sx={{ bgcolor: 'white', '&:hover': { bgcolor: 'grey.50' }, fontSize: '0.7rem', height: 28 }}
+                >
+                    Full Report
+                </Button>
+            </Box>
+
             {/* Header */}
             <Box sx={{ px: 2, py: 1.5, borderBottom: 1, borderColor: 'divider', bgcolor: 'grey.50', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <Stack direction="row" spacing={1} alignItems="center">
-                    <Target size={20} className="text-indigo-600" />
-                    <Typography variant="subtitle2" fontWeight="bold">Reliability Metrics</Typography>
+                    <Target size={18} className="text-slate-600" />
+                    <Typography variant="subtitle2" fontWeight="bold" color="text.secondary" textTransform="uppercase">
+                        Performance Metrics
+                    </Typography>
                 </Stack>
-                <Stack direction="row" spacing={1} alignItems="center">
-                    <IconButton size="small" onClick={fetchMetrics} title="Refresh">
-                        <RefreshCw size={16} />
-                    </IconButton>
-                    <Chip
-                        label={`${availability.toFixed(1)}% Availability`}
-                        size="small"
-                        color="primary"
-                        variant="soft" // using Mui Joy style naming but standard MUI maps to default
-                        sx={{ bgcolor: 'primary.light', color: 'primary.main', fontWeight: 'bold', fontSize: '0.7rem', height: 24 }}
-                    />
-                </Stack>
+                {/* Availability Badge with Ring */}
+                <Box sx={{ display: 'flex', alignItems: 'center', px: 1, py: 0.5, borderRadius: 4, bgcolor: 'primary.lighter', color: 'primary.main', border: 1, borderColor: 'primary.light' }}>
+                    <Box sx={{ position: 'relative', display: 'inline-flex', mr: 1 }}>
+                        <CircularProgress variant="determinate" value={100} size={16} sx={{ color: 'rgba(0,0,0,0.1)' }} />
+                        <CircularProgress variant="determinate" value={availability} size={16} sx={{ color: 'primary.main', position: 'absolute', left: 0 }} />
+                    </Box>
+                    <Typography variant="caption" fontWeight="bold" sx={{ fontSize: '0.7rem' }}>
+                        {availability.toFixed(1)}% Avail.
+                    </Typography>
+                </Box>
             </Box>
 
             {/* Metrics Grid */}
             <Grid container sx={{ flex: 1 }}>
-                {/* MTBF */}
-                <Grid item xs={6} sx={{ borderRight: 1, borderColor: 'divider', p: 2, bgcolor: statusConfig[mtbfStatus].bg }}>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                        <Stack direction="row" spacing={0.5} alignItems="center">
-                            <Clock size={16} className={`text-${statusConfig[mtbfStatus].color}-main`} style={{ color: mtbfStatus === 'good' ? '#10b981' : mtbfStatus === 'warning' ? '#f59e0b' : '#ef4444' }} />
-                            <Typography variant="caption" fontWeight="bold" color="text.secondary">MTBF</Typography>
-                        </Stack>
-                        {mtbfStatus === 'good' ? <TrendingUp size={16} color="#10b981" /> : <TrendingDown size={16} color="#ef4444" />}
-                    </Box>
+
+                {/* OEE Metric */}
+                <Grid item xs={4} sx={{ borderRight: 1, borderColor: 'divider', p: 2 }}>
+                    <Typography variant="caption" fontWeight="bold" color="text.secondary" display="block" mb={0.5}>OEE (Index)</Typography>
                     <Stack direction="row" spacing={0.5} alignItems="baseline">
-                        <Typography variant="h4" fontWeight="bold" sx={{ color: `${statusConfig[mtbfStatus].color}.main` }}>
-                            {Math.round(mtbf)}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary">hrs</Typography>
+                        <Typography variant="h5" fontWeight="bold" color="text.primary">{oee.toFixed(1)}</Typography>
+                        <Typography variant="caption" color="text.secondary">%</Typography>
                     </Stack>
-                    <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>Mean Time Between Failures</Typography>
-                    <Chip
-                        label={mtbfStatus === 'good' ? 'Above Target' : mtbfStatus === 'warning' ? 'Below Target' : 'Critical'}
-                        size="small"
-                        color={statusConfig[mtbfStatus].color}
-                        variant="outlined"
-                        sx={{ mt: 1, height: 20, fontSize: '0.65rem' }}
-                    />
+                    <BulletChart value={oee} max={100} target={benchmarks.oee.target} type="high-good" />
+                    <Stack direction="row" justifyContent="space-between" mt={0.5}>
+                        <Typography variant="caption" color="text.disabled">Target: {benchmarks.oee.target}%</Typography>
+                        <Chip label={oeeStatus.toUpperCase()} size="small" sx={{ height: 16, fontSize: '0.55rem', bgcolor: statusConfig[oeeStatus].bg, color: statusConfig[oeeStatus].text, fontWeight: 'bold' }} />
+                    </Stack>
                 </Grid>
 
-                {/* MTTR */}
-                <Grid item xs={6} sx={{ p: 2, bgcolor: statusConfig[mttrStatus].bg }}>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                        <Stack direction="row" spacing={0.5} alignItems="center">
-                            <RotateCcw size={16} className={`text-${statusConfig[mttrStatus].color}-main`} style={{ color: mttrStatus === 'good' ? '#10b981' : mttrStatus === 'warning' ? '#f59e0b' : '#ef4444' }} />
-                            <Typography variant="caption" fontWeight="bold" color="text.secondary">MTTR</Typography>
-                        </Stack>
-                        {mttrStatus === 'good' ? <TrendingDown size={16} color="#10b981" /> : <TrendingUp size={16} color="#ef4444" />}
-                    </Box>
+                {/* MTBF Metric */}
+                <Grid item xs={4} sx={{ borderRight: 1, borderColor: 'divider', p: 2 }}>
+                    <Typography variant="caption" fontWeight="bold" color="text.secondary" display="block" mb={0.5}>MTBF (Hrs)</Typography>
                     <Stack direction="row" spacing={0.5} alignItems="baseline">
-                        <Typography variant="h4" fontWeight="bold" sx={{ color: `${statusConfig[mttrStatus].color}.main` }}>
-                            {mttr.toFixed(1)}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary">hrs</Typography>
+                        <Typography variant="h5" fontWeight="bold" color="text.primary">{Math.round(mtbf)}</Typography>
+                        <Typography variant="caption" color="text.secondary">h</Typography>
                     </Stack>
-                    <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>Mean Time To Repair</Typography>
-                    <Chip
-                        label={mttrStatus === 'good' ? 'On Target' : mttrStatus === 'warning' ? 'Above Target' : 'Critical'}
-                        size="small"
-                        color={statusConfig[mttrStatus].color}
-                        variant="outlined"
-                        sx={{ mt: 1, height: 20, fontSize: '0.65rem' }}
-                    />
+                    <BulletChart value={mtbf} max={benchmarks.mtbf.max} target={benchmarks.mtbf.target} type="high-good" />
+                    <Stack direction="row" justifyContent="space-between" mt={0.5}>
+                        <Typography variant="caption" color="text.disabled">Target: {benchmarks.mtbf.target}</Typography>
+                        {/* Trend Indicator */}
+                        {mtbfStatus === 'good' ? <TrendingUp size={14} className="text-emerald-500" /> : <TrendingDown size={14} className="text-red-500" />}
+                    </Stack>
+                </Grid>
+
+                {/* MTTR Metric */}
+                <Grid item xs={4} sx={{ p: 2 }}>
+                    <Typography variant="caption" fontWeight="bold" color="text.secondary" display="block" mb={0.5}>MTTR (Hrs)</Typography>
+                    <Stack direction="row" spacing={0.5} alignItems="baseline">
+                        <Typography variant="h5" fontWeight="bold" color="text.primary">{mttr.toFixed(1)}</Typography>
+                        <Typography variant="caption" color="text.secondary">h</Typography>
+                    </Stack>
+                    <BulletChart value={mttr} max={benchmarks.mttr.max} target={benchmarks.mttr.target} type="low-good" />
+                    <Stack direction="row" justifyContent="space-between" mt={0.5}>
+                        <Typography variant="caption" color="text.disabled">Target: &lt;{benchmarks.mttr.target}</Typography>
+                        {/* Trend Indicator (Inverted color logic) */}
+                        {mttrStatus === 'good' ? <TrendingDown size={14} className="text-emerald-500" /> : <TrendingUp size={14} className="text-red-500" />}
+                    </Stack>
                 </Grid>
             </Grid>
 
-            {/* Footer Stats */}
-            <Box sx={{ px: 2, py: 1, bgcolor: 'grey.50', borderTop: 1, borderColor: 'divider', display: 'flex', justifyContent: 'space-between' }}>
-                <Stack direction="row" spacing={2}>
-                    <Typography variant="caption" color="text.secondary"><Box component="span" fontWeight="bold" color="text.primary">{failureCount}</Box> failures YTD</Typography>
-                    <Typography variant="caption" color="text.secondary"><Box component="span" fontWeight="bold" color="text.primary">{totalUptime.toLocaleString()}</Box> hrs uptime</Typography>
+            {/* Footer Stats - High Density */}
+            <Box sx={{ px: 2, py: 1.5, bgcolor: 'grey.50', borderTop: 1, borderColor: 'divider', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Stack direction="row" spacing={3}>
+                    <Stack direction="row" spacing={1} alignItems="center">
+                        <AlertTriangle size={14} className="text-amber-600" />
+                        <Typography variant="caption" color="text.secondary">
+                            Failures YTD: <Box component="span" fontWeight="bold" fontFamily="monospace" color="text.primary">{failureCount}</Box>
+                        </Typography>
+                    </Stack>
+                    <Stack direction="row" spacing={1} alignItems="center">
+                        <Clock size={14} className="text-blue-600" />
+                        <Typography variant="caption" color="text.secondary">
+                            Uptime: <Box component="span" fontWeight="bold" fontFamily="monospace" color="text.primary">{totalUptime.toLocaleString()}</Box> hrs
+                        </Typography>
+                    </Stack>
                 </Stack>
-                <Typography variant="caption" color="text.disabled">Source: PDM Analytics</Typography>
             </Box>
         </Card>
     );

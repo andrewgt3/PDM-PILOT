@@ -6,6 +6,10 @@ import Sidebar from './components/Sidebar';
 import PlantOverview from './components/PlantOverview';
 import MachineDetail from './components/MachineDetail';
 import AnomalyDiscoveryPage from './pages/AnomalyDiscoveryPage';
+import SetupGuidePage from './pages/SetupGuidePage';
+import PipelineOps from './components/PipelineOps';
+import LoginPage from './components/LoginPage';
+import LoadingScreen from './components/LoadingScreen';
 import { Factory } from 'lucide-react';
 import './index.css';
 
@@ -17,6 +21,27 @@ function App() {
   const [machines, setMachines] = useState([]);
   const [selectedMachineId, setSelectedMachineId] = useState(null);
   const [view, setView] = useState('overview'); // 'overview' or 'detail'
+
+  // Authentication & Loading State
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+
+  // Pipeline Ops state — shown after loading, before main app
+  const [showPipelineOps, setShowPipelineOps] = useState(true);
+
+  const handleLogin = () => {
+    setIsAuthenticated(true);
+    setIsLoading(true);
+  };
+
+  const handleLoadingComplete = () => {
+    setIsLoading(false);
+  };
+
+  const handleGoLive = () => {
+    setShowPipelineOps(false);
+    setView('overview');
+  };
 
   // Fetch initial machine list from REST API
   useEffect(() => {
@@ -86,90 +111,140 @@ function App() {
   // Find the selected machine object
   const selectedMachine = machines.find(m => m.machine_id === selectedMachineId);
 
+  /* New State for Layout Preference */
+  const [isFlushLayout, setIsFlushLayout] = useState(() => {
+    return localStorage.getItem('app_layout_flush') === 'true';
+  });
+
+  const toggleLayout = () => {
+    const newVal = !isFlushLayout;
+    setIsFlushLayout(newVal);
+    localStorage.setItem('app_layout_flush', String(newVal));
+  }
+
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <Box sx={{ display: 'flex', minHeight: '100vh', bgcolor: 'background.default' }}>
-        {/* Sidebar Navigation */}
-        <Sidebar
-          machines={machines}
-          selectedMachineId={selectedMachineId}
-          view={view}
-          setView={setView}
-          onSelectMachine={handleSelectMachine}
-        />
 
-        {/* Main Content Area */}
-        <Box component="main" sx={{
-          flexGrow: 1,
-          p: { xs: 2, sm: 3, md: 4 },
-          ml: '240px',
-          maxWidth: 'calc(100vw - 240px)',
-          overflow: 'hidden'
-        }}>
-          {/* Top Bar / Status */}
-          <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 3 }}>
-            <Box
-              sx={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 1,
-                px: 1.5,
-                py: 0.75,
-                borderRadius: 4,
-                bgcolor: isConnected ? 'success.light' : 'error.light', // Using light implementation-ish
-                color: isConnected ? 'success.dark' : 'error.dark',
-                // Note: MUI palette access in sx is direct e.g. 'success.main'. 
-                // Using custom bg colors for now via alpha or theme colors if defined.
-                // Let's use theme.palette directly or correct aliases.
-                // Reverting to hardcoded or close approximates to ensure no build error if theme structure varies.
-                bgcolor: isConnected ? '#d1fae5' : '#fee2e2',
-                color: isConnected ? '#047857' : '#b91c1c'
-              }}
-            >
-              <Box
-                sx={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: '50%',
-                  bgcolor: isConnected ? 'success.main' : 'error.main',
-                  animation: isConnected ? 'pulse 2s infinite' : 'none',
-                  '@keyframes pulse': {
-                    '0%': { boxShadow: '0 0 0 0 rgba(5, 150, 105, 0.7)' },
-                    '70%': { boxShadow: '0 0 0 10px rgba(5, 150, 105, 0)' },
-                    '100%': { boxShadow: '0 0 0 0 rgba(5, 150, 105, 0)' }
-                  }
-                }}
-              />
-              <Typography variant="caption" fontWeight="bold">
-                {isConnected ? 'LIVE' : 'OFFLINE'}
-              </Typography>
+      {!isAuthenticated ? (
+        <LoginPage onLogin={handleLogin} />
+      ) : isLoading ? (
+        <LoadingScreen onComplete={handleLoadingComplete} />
+      ) : showPipelineOps ? (
+        <PipelineOps onGoLive={handleGoLive} />
+      ) : (
+        <Box sx={{ display: 'flex', minHeight: '100vh', bgcolor: 'background.default' }}>
+          {/* Sidebar Navigation */}
+          <Sidebar
+            machines={machines}
+            selectedMachineId={selectedMachineId}
+            view={view}
+            setView={setView}
+            onSelectMachine={handleSelectMachine}
+          />
+
+          {/* Main Content Area */}
+          <Box component="main" sx={{
+            flexGrow: 1,
+            width: '100%', // Ensure it takes available space
+            overflow: 'hidden', // Standard behavior
+            padding: 0,
+            minHeight: '100vh',
+            display: 'flex',
+            flexDirection: 'column'
+          }}>
+            <Box sx={{
+              p: 0,
+              flexGrow: 1,
+              overflow: 'auto', // Allow scrolling
+              transition: 'padding 0.3s ease'
+            }}>
+              {/* Top Bar / Status */}
+              <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 3, alignItems: 'center', gap: 2 }}>
+                {/* Layout Toggle - Temporary Location */}
+                <Box
+                  onClick={toggleLayout}
+                  sx={{
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 1,
+                    opacity: 0.7,
+                    '&:hover': { opacity: 1 },
+                    p: 1,
+                    borderRadius: 1,
+                    bgcolor: 'action.hover'
+                  }}
+                >
+                  <Typography variant="caption" fontWeight="bold">
+                    {isFlushLayout ? "COMPACT" : "FULL WIDTH"}
+                  </Typography>
+                </Box>
+                <Box
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 1,
+                    px: 1.5,
+                    py: 0.75,
+                    borderRadius: 4,
+                    // Note: MUI palette access in sx is direct e.g. 'success.main'. 
+                    // Using custom bg colors for now via alpha or theme colors if defined.
+                    // Let's use theme.palette directly or correct aliases.
+                    // Reverting to hardcoded or close approximates to ensure no build error if theme structure varies.
+                    bgcolor: isConnected ? '#d1fae5' : '#fee2e2',
+                    color: isConnected ? '#047857' : '#b91c1c'
+                  }}
+                >
+                  <Box
+                    sx={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: '50%',
+                      bgcolor: isConnected ? 'success.main' : 'error.main',
+                      animation: isConnected ? 'pulse 2s infinite' : 'none',
+                      '@keyframes pulse': {
+                        '0%': { boxShadow: '0 0 0 0 rgba(5, 150, 105, 0.7)' },
+                        '70%': { boxShadow: '0 0 0 10px rgba(5, 150, 105, 0)' },
+                        '100%': { boxShadow: '0 0 0 0 rgba(5, 150, 105, 0)' }
+                      }
+                    }}
+                  />
+                  <Typography variant="caption" fontWeight="bold">
+                    {isConnected ? 'LIVE' : 'OFFLINE'}
+                  </Typography>
+                </Box>
+              </Box>
+
+              {/* View Router */}
+              {view === 'pipeline-ops' ? (
+                <PipelineOps onGoLive={handleGoLive} />
+              ) : view === 'setup-guide' ? (
+                <SetupGuidePage />
+              ) : view === 'overview' ? (
+                <PlantOverview
+                  machines={machines}
+                  messages={messages}
+                  onSelectMachine={handleSelectMachine}
+                />
+              ) : view === 'anomaly-discovery' ? (
+                <AnomalyDiscoveryPage />
+              ) : selectedMachine ? (
+                <MachineDetail
+                  machine={selectedMachine}
+                  messages={messages}
+                  onBack={handleBackToOverview}
+                />
+              ) : (
+                <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '60vh', color: 'text.secondary' }}>
+                  <Factory style={{ width: 64, height: 64, marginBottom: 16 }} />
+                  <Typography>Waiting for fleet data...</Typography>
+                </Box>
+              )}
             </Box>
           </Box>
-
-          {/* View Router */}
-          {view === 'overview' ? (
-            <PlantOverview
-              machines={machines}
-              messages={messages}
-              onSelectMachine={handleSelectMachine}
-            />
-          ) : view === 'anomaly-discovery' ? (
-            <AnomalyDiscoveryPage />
-          ) : selectedMachine ? (
-            <MachineDetail
-              machine={selectedMachine}
-              messages={messages}
-              onBack={handleBackToOverview}
-            />
-          ) : (
-            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '60vh', color: 'text.secondary' }}>
-              <Factory style={{ width: 64, height: 64, marginBottom: 16 }} />
-              <Typography>Waiting for fleet data...</Typography>
-            </Box>
-          )}
         </Box>
-      </Box>
+      )}
     </ThemeProvider>
   );
 }

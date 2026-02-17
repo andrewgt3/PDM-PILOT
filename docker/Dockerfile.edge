@@ -1,0 +1,64 @@
+# =============================================================================
+# Gaia Edge Agent Dockerfile
+# =============================================================================
+# Optimized container for OPC UA to Gaia API bridge.
+# Runs as non-root user for security compliance.
+#
+# Build:
+#   docker build -f docker/Dockerfile.edge -t gaia-edge-agent .
+#
+# Run:
+#   docker run -e API_USERNAME=admin -e API_PASSWORD=secret \
+#              -e GAIA_API_URL=http://api:8000 \
+#              -e OPC_SERVER_URL=opc.tcp://plc:4840 \
+#              gaia-edge-agent
+# =============================================================================
+
+FROM python:3.11-slim
+
+# Security: Don't run as root
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# Install minimal OS dependencies for asyncua
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN groupadd --gid 1000 gaia \
+    && useradd --uid 1000 --gid gaia --shell /bin/bash --create-home gaia
+
+# Set working directory
+WORKDIR /app
+
+# Install only edge dependencies (minimal footprint)
+RUN pip install --no-cache-dir \
+    asyncua>=1.0.0 \
+    pydantic>=2.0.0 \
+    httpx>=0.25.0 \
+    tenacity>=8.2.0 \
+    requests>=2.31.0 \
+    redis>=5.0.0 \
+    python-dotenv>=1.0.0
+
+# Copy only the edge agent code
+COPY opc_client_adapter.py .
+
+# Switch to non-root user
+USER gaia
+
+# Health check - verify Python can import required modules
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD python -c "import asyncua; import pydantic; import httpx; print('OK')" || exit 1
+
+# Labels for container registry
+LABEL org.opencontainers.image.title="Gaia Edge Agent" \
+    org.opencontainers.image.description="OPC UA to Gaia API bridge with JWT auth" \
+    org.opencontainers.image.vendor="Gaia Predictive" \
+    org.opencontainers.image.version="1.0.0"
+
+# Entrypoint
+ENTRYPOINT ["python", "opc_client_adapter.py"]

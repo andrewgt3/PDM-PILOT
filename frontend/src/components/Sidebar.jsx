@@ -4,7 +4,8 @@ import {
     Typography, Avatar, Chip, Divider, ListSubheader
 } from '@mui/material';
 import {
-    FactoryOutlined, PsychologyOutlined, KeyboardArrowRight
+    FactoryOutlined, PsychologyOutlined, KeyboardArrowRight,
+    ElectricBoltOutlined, MenuBookOutlined
 } from '@mui/icons-material';
 
 /**
@@ -85,15 +86,25 @@ function Sidebar({ machines, selectedMachineId, onSelectMachine, view, setView }
                     </ListItemButton>
 
                     <ListItemButton
-                        selected={view === 'anomaly-discovery'}
-                        onClick={() => setView('anomaly-discovery')}
+                        selected={view === 'pipeline-ops'}
+                        onClick={() => setView('pipeline-ops')}
                         sx={{ borderRadius: 1, mx: 1, mb: 0.5 }}
                     >
-                        <ListItemIcon sx={{ minWidth: 40, color: view === 'anomaly-discovery' ? 'secondary.main' : 'inherit' }}>
-                            <PsychologyOutlined fontSize="small" />
+                        <ListItemIcon sx={{ minWidth: 40, color: view === 'pipeline-ops' ? 'primary.main' : 'inherit' }}>
+                            <ElectricBoltOutlined fontSize="small" />
                         </ListItemIcon>
-                        <ListItemText primary="AI Discovery" primaryTypographyProps={{ fontSize: '0.875rem', fontWeight: 500 }} />
-                        <Chip size="small" color="secondary" label="NEW" sx={{ height: 20, fontSize: '0.65rem', fontWeight: 'bold' }} />
+                        <ListItemText primary="Pipeline Ops" primaryTypographyProps={{ fontSize: '0.875rem', fontWeight: 500 }} />
+                    </ListItemButton>
+
+                    <ListItemButton
+                        selected={view === 'setup-guide'}
+                        onClick={() => setView('setup-guide')}
+                        sx={{ borderRadius: 1, mx: 1, mb: 0.5 }}
+                    >
+                        <ListItemIcon sx={{ minWidth: 40, color: view === 'setup-guide' ? 'primary.main' : 'inherit' }}>
+                            <MenuBookOutlined fontSize="small" />
+                        </ListItemIcon>
+                        <ListItemText primary="Setup Guide" primaryTypographyProps={{ fontSize: '0.875rem', fontWeight: 500 }} />
                     </ListItemButton>
                 </List>
 

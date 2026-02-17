@@ -1,4 +1,5 @@
 import React, { useMemo, useState, useEffect } from 'react';
+import { IndustrialTile } from './IndustrialTile';
 import { Brain, Gauge, Thermometer, Activity, ArrowLeft } from 'lucide-react';
 import {
     Grid, Box, Card, CardContent, Typography, Button,
@@ -7,17 +8,21 @@ import {
 } from '@mui/material';
 import { NavigateNext } from '@mui/icons-material';
 
+import { DashboardGrid } from './DashboardGrid';
 import RULCard from './RULCard';
 import BearingFaultPanel from './BearingFaultPanel';
 import FeatureImportancePanel from './FeatureImportancePanel';
 import MaintenanceRecommendationCard from './MaintenanceRecommendationCard';
 import DegradationTrendChart from './DegradationTrendChart';
 import BearingFaultTrendsChart from './BearingFaultTrendsChart';
+import LineContextWidget from './LineContextWidget';
 // Enterprise CMMS Components
 import ReliabilityMetricsCard from './ReliabilityMetricsCard';
 import ActiveAlarmFeed from './ActiveAlarmFeed';
 import WorkOrderPanel from './WorkOrderPanel';
 import ShiftAwareRUL from './ShiftAwareRUL';
+import MaintenanceModal from './MaintenanceModal';
+import { Snackbar, Alert } from '@mui/material';
 
 /**
  * MachineDetail Component (Unified Platform)
@@ -37,6 +42,16 @@ function MachineDetail({ machine, messages, onBack }) {
     const [history, setHistory] = useState([]);
     const [isLoadingHistory, setIsLoadingHistory] = useState(false);
 
+    // Scheduling State
+    const [isScheduling, setIsScheduling] = useState(false);
+    const [showSuccess, setShowSuccess] = useState(false);
+
+    const handleConfirmSchedule = (data) => {
+        console.log("Scheduled from Detail:", data);
+        setIsScheduling(false);
+        setShowSuccess(true);
+    };
+
     // Fetch history when machine changes
     useEffect(() => {
         const fetchHistory = async () => {
@@ -44,7 +59,6 @@ function MachineDetail({ machine, messages, onBack }) {
             try {
                 // Fetch last 50 records for charts (balanced speed vs. detail)
                 const res = await fetch(`http://localhost:8000/api/features?limit=50&machine_id=${machine.machine_id}`);
-
                 const data = await res.json();
                 // Reverse to have oldest first for charts
                 if (data.data) {
@@ -62,264 +76,343 @@ function MachineDetail({ machine, messages, onBack }) {
         }
     }, [machine.machine_id]);
 
-
     // Status Helpers
     const isCritical = machine.failure_probability > 0.8;
     const isWarning = machine.failure_probability > 0.5;
     const formatVal = (val, fixed = 2) => val !== undefined ? val.toFixed(fixed) : '-';
 
-    return (
-        <Box sx={{ pb: 8 }}>
-            {/* Back Button */}
-            {onBack && (
-                <Button
-                    startIcon={<ArrowLeft size={16} />}
-                    onClick={onBack}
-                    sx={{ mb: 2, color: 'text.secondary' }}
-                >
-                    Back to Overview
-                </Button>
-            )}
+    // --- Drag and Drop State Management ---
+    // Layout Strategy: Canvas-based Bento Grid
+    const defaultPositions = {
+        // Row 1: KPIs (Total ~1350px)
+        metric_confidence: { x: 0, y: 190, w: 322, h: 200 },
+        metric_speed: { x: 342, y: 190, w: 322, h: 200 },
+        metric_temp: { x: 684, y: 190, w: 322, h: 200 },
+        metric_fault: { x: 1026, y: 190, w: 322, h: 200 },
 
-            {/* Header Section */}
-            <Box sx={{ mb: 4, pb: 2, borderBottom: 1, borderColor: 'divider' }}>
-                {/* Breadcrumbs */}
-                <Breadcrumbs separator={<NavigateNext fontSize="small" />} sx={{ mb: 2 }}>
-                    <Link underline="hover" color="inherit" href="#">Plant</Link>
-                    <Link underline="hover" color="inherit" href="#">{machine.line_name || 'Unassigned Line'}</Link>
-                    <Typography color="text.primary" fontWeight="medium">{machine.machine_id}</Typography>
-                </Breadcrumbs>
+        // Row 2: Asset & RUL & Rec
+        line_context: { x: 0, y: 410, w: 322, h: 600 },
+        rul_card: { x: 342, y: 410, w: 664, h: 600 },
+        maintenance_rec: { x: 1026, y: 410, w: 322, h: 600 },
 
-                <Grid container alignItems="center" justifyContent="space-between" spacing={2}>
-                    <Grid item>
-                        <Stack direction="row" spacing={2} alignItems="center">
-                            <Box>
-                                <Typography variant="h4" fontWeight="bold">{machine.machine_id}</Typography>
-                                <Typography variant="body2" color="text.secondary">
-                                    {machine.model_number || 'Unknown Model'} • Installed {machine.install_date || 'N/A'}
-                                </Typography>
-                            </Box>
-                            <Chip
-                                label={machine.operational_status || 'OFFLINE'}
-                                color={machine.operational_status === 'RUNNING' ? 'success' : 'default'}
-                                variant="outlined"
-                                sx={{ fontWeight: 'bold' }}
-                            />
-                        </Stack>
-                    </Grid>
+        // Row 3: Trend Charts (Full Width)
+        trend_degradation: { x: 0, y: 1030, w: 1350, h: 500 },
+        trend_faults: { x: 0, y: 1550, w: 1350, h: 500 },
 
-                    <Grid item>
-                        <Chip
-                            icon={<Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: isCritical ? 'error.main' : isWarning ? 'warning.main' : 'success.main', ml: 1, mr: -0.5, animation: 'pulse 2s infinite' }} />}
-                            label={isCritical ? 'CRITICAL FAILURE' : isWarning ? 'WARNING' : 'HEALTHY'}
-                            color={isCritical ? 'error' : isWarning ? 'warning' : 'success'}
-                            sx={{ px: 1, py: 2.5, fontWeight: 'bold', fontSize: '0.875rem' }}
-                        />
-                    </Grid>
-                </Grid>
-            </Box>
+        // Row 4: Diagnostic Panels (Split)
+        panel_faults: { x: 0, y: 2070, w: 664, h: 600 },
+        panel_features: { x: 684, y: 2070, w: 664, h: 600 },
 
-            {/* KPI Cards */}
-            <Grid container spacing={2} sx={{ mb: 3 }}>
-                <Grid item xs={6} sm={6} md={3}>
-                    <MetricCard
-                        label="AI Confidence"
-                        value={`${(machine.failure_probability * 100).toFixed(1)}%`}
-                        trend={isCritical ? 'Risk High' : 'Stable'}
-                        color={isCritical ? 'error' : 'primary'}
-                        icon={Brain}
-                    />
-                </Grid>
-                <Grid item xs={6} sm={6} md={3}>
-                    <MetricCard
-                        label="Rotational Speed"
-                        value={history.length > 0 ? `${formatVal(history[history.length - 1].rotational_speed, 0)}` : '-'}
-                        sub="Target: 1800 RPM"
-                        color="default"
-                        icon={Gauge}
-                    />
-                </Grid>
-                <Grid item xs={6} sm={6} md={3}>
-                    <MetricCard
-                        label="Bearing Temp"
-                        value={history.length > 0 ? `${formatVal(history[history.length - 1].temperature, 1)}°` : '-°'}
-                        sub="Max: 100°C"
-                        color="warning"
-                        icon={Thermometer}
-                    />
-                </Grid>
-                <Grid item xs={6} sm={6} md={3}>
-                    <MetricCard
-                        label="Fault Energy"
-                        value={history.length > 0 ? formatVal(history[history.length - 1].bpfi_amp, 4) : '-'}
-                        sub="BPFI Amplitude (g)"
-                        color="success"
-                        icon={Activity}
-                    />
-                </Grid>
-            </Grid>
+        // Row 5: Log
+        feature_log: { x: 0, y: 2690, w: 1350, h: 500 },
 
-            {/* --- TOP ROW: Asset Profile & RUL Side by Side --- */}
-            <Grid container spacing={2} sx={{ mb: 3 }}>
-                {/* Asset Info */}
-                <Grid item xs={12} md={6} lg={4}>
-                    <Card variant="outlined" sx={{ height: '100%', borderRadius: 2 }}>
-                        <CardContent sx={{ p: { xs: 2, md: 2.5 } }}>
-                            <Typography variant="overline" color="text.secondary" fontWeight="bold" display="block" gutterBottom>
-                                Asset Profile
-                            </Typography>
-                            <Stack spacing={1.5} sx={{ mt: 1.5 }}>
-                                <Box sx={{ display: 'flex', justifyContent: 'space-between', borderBottom: 1, borderColor: 'divider', pb: 1 }}>
-                                    <Typography variant="body2" color="text.secondary">Model</Typography>
-                                    <Typography variant="body2" fontWeight="medium">{machine.model_number || '-'}</Typography>
-                                </Box>
-                                <Box sx={{ display: 'flex', justifyContent: 'space-between', borderBottom: 1, borderColor: 'divider', pb: 1 }}>
-                                    <Typography variant="body2" color="text.secondary">Serial No.</Typography>
-                                    <Typography variant="body2" fontWeight="medium">SN-{machine.machine_id.split('_')[1] || machine.machine_id}-202X</Typography>
-                                </Box>
-                                <Box sx={{ display: 'flex', justifyContent: 'space-between', borderBottom: 1, borderColor: 'divider', pb: 1 }}>
-                                    <Typography variant="body2" color="text.secondary">Line</Typography>
-                                    <Typography variant="body2" fontWeight="medium">{machine.line_name || machine.line_id || '-'}</Typography>
-                                </Box>
-                                <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                                    <Typography variant="body2" color="text.secondary">Equipment Type</Typography>
-                                    <Typography variant="body2" fontWeight="medium">{machine.equipment_type || '-'}</Typography>
-                                </Box>
-                            </Stack>
-                        </CardContent>
-                    </Card>
-                </Grid>
+        // Row 6: Enterprise 1
+        cmms_metrics: { x: 0, y: 3210, w: 664, h: 500 },
+        cmms_rul: { x: 684, y: 3210, w: 664, h: 500 },
 
-                {/* RUL Card */}
-                <Grid item xs={12} md={6} lg={5}>
+        // Row 7: Enterprise 2
+        cmms_alarms: { x: 0, y: 3730, w: 664, h: 600 },
+        cmms_orders: { x: 684, y: 3730, w: 664, h: 600 }
+    };
+
+    const [layoutPositions, setLayoutPositions] = useState(() => {
+        try {
+            const saved = localStorage.getItem('machine_detail_positions_v6'); // Incremented key for update
+            const parsed = saved ? JSON.parse(saved) : null;
+            if (parsed && typeof parsed === 'object') {
+                return { ...defaultPositions, ...parsed };
+            }
+            return defaultPositions;
+        } catch (e) {
+            return defaultPositions;
+        }
+    });
+
+    const handleUpdate = (id, updates) => {
+        const newPositions = {
+            ...layoutPositions,
+            [id]: { ...layoutPositions[id], ...updates }
+        };
+        setLayoutPositions(newPositions);
+        localStorage.setItem('machine_detail_positions_v6', JSON.stringify(newPositions));
+    };
+
+    const widgetsContent = useMemo(() => ({
+        metric_confidence: {
+            id: 'metric_confidence',
+            content: (
+                <IndustrialTile
+                    title="AI Confidence"
+                    value={`${(machine.failure_probability * 100).toFixed(1)}`}
+                    unit="%"
+                    icon={Brain}
+                    trendData={history}
+                    dataKey="failure_probability"
+                    limit={100} // Logical max for percentage
+                    isHero={true}
+                    riskLevel={isCritical ? 'critical' : isWarning ? 'warning' : 'normal'}
+                    onAction={() => console.log('View Diagnostics')} // Placeholder or scroll to panels
+                />
+            )
+        },
+        metric_speed: {
+            id: 'metric_speed',
+            content: (
+                <IndustrialTile
+                    title="Rotational Speed"
+                    value={history.length > 0 ? `${formatVal(history[history.length - 1].rotational_speed, 0)}` : '-'}
+                    unit="RPM"
+                    icon={Gauge}
+                    trendData={history}
+                    dataKey="rotational_speed"
+                    limit={1800} // Target
+                    riskLevel={'normal'}
+                />
+            )
+        },
+        metric_temp: {
+            id: 'metric_temp',
+            content: (
+                <IndustrialTile
+                    title="Bearing Temp"
+                    value={history.length > 0 ? `${formatVal(history[history.length - 1].temperature, 1)}` : '-'}
+                    unit="°C"
+                    icon={Thermometer}
+                    trendData={history}
+                    dataKey="temperature"
+                    limit={100} // Max
+                    riskLevel={history.length > 0 && history[history.length - 1].temperature > 90 ? 'critical' : 'normal'}
+                />
+            )
+        },
+        metric_fault: {
+            id: 'metric_fault',
+            content: (
+                <IndustrialTile
+                    title="Fault Energy"
+                    value={history.length > 0 ? formatVal(history[history.length - 1].bpfi_amp, 4) : '-'}
+                    unit="g"
+                    icon={Activity}
+                    trendData={history}
+                    dataKey="bpfi_amp"
+                    limit={0.02} // Estimated limit for small vibration
+                    riskLevel={'normal'}
+                />
+            )
+        },
+        line_context: {
+            id: 'line_context',
+            content: <LineContextWidget machineId={machine.machine_id} />
+        },
+        rul_card: {
+            id: 'rul_card',
+            content: (
+                <Box sx={{ height: '100%' }}>
                     <RULCard
                         rul={machine.rul_days}
-                        failureProbability={machine.failure_probability}
+                        timeToFailure={machine.rul_days * 24}
                         degradationScore={history.length > 0 ? history[history.length - 1].degradation_score : 0}
+                        onSchedule={() => setIsScheduling(true)}
                     />
-                </Grid>
-
-                {/* Maintenance Recommendation */}
-                <Grid item xs={12} lg={3}>
-                    <MaintenanceRecommendationCard
-                        machine={machine}
-                        latestData={history[history.length - 1]}
-                    />
-                </Grid>
-            </Grid>
-
-            {/* --- FULL WIDTH: Trend Charts --- */}
-            <Grid container spacing={3} sx={{ mb: 4 }}>
-                <Grid item xs={12} lg={6}>
-                    <DegradationTrendChart data={history} />
-                </Grid>
-                <Grid item xs={12} lg={6}>
-                    <BearingFaultTrendsChart data={history} />
-                </Grid>
-            </Grid>
-
-            {/* --- FULL WIDTH: Diagnostic Panels --- */}
-            <Grid container spacing={3} sx={{ mb: 4 }}>
-                <Grid item xs={12} lg={6}>
-                    <BearingFaultPanel data={history} />
-                </Grid>
-                <Grid item xs={12} lg={6}>
-                    <FeatureImportancePanel
-                        data={history}
-                        failureProbability={machine.failure_probability}
-                    />
-                </Grid>
-            </Grid>
-
-            {/* --- FULL WIDTH: Feature Log --- */}
-            <Card variant="outlined" sx={{ mb: 4, borderRadius: 2, overflow: 'hidden' }}>
-                <Box sx={{ px: 3, py: 2, borderBottom: 1, borderColor: 'divider', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Stack direction="row" spacing={2} alignItems="center">
-                        <Typography variant="subtitle1" fontWeight="bold">Feature Log</Typography>
-                        {machineMessages.length > 0 ? (
-                            <Chip label="LIVE" color="success" size="small" variant="outlined" />
-                        ) : (
-                            <Chip label="HISTORICAL" color="default" size="small" variant="outlined" />
-                        )}
-                    </Stack>
-                    <Typography variant="caption" color="text.secondary" fontFamily="monospace">
-                        {machineMessages.length > 0 ? `${machineMessages.length} live events` : `${history.length} records`}
-                    </Typography>
                 </Box>
-                <TableContainer sx={{ maxHeight: 300 }}>
-                    <Table stickyHeader size="small">
-                        <TableHead>
-                            <TableRow>
-                                <TableCell>Timestamp</TableCell>
-                                <TableCell>Failure Prob</TableCell>
-                                <TableCell>Degradation</TableCell>
-                                <TableCell>BPFI</TableCell>
-                                <TableCell>BPFO</TableCell>
-                                <TableCell>Speed (RPM)</TableCell>
-                            </TableRow>
-                        </TableHead>
-                        <TableBody>
-                            {(machineMessages.length > 0 ? machineMessages.slice(0, 20) : [...history].reverse().slice(0, 20)).map((record, i) => {
-                                const failProb = record.failure_probability || record.failure_prediction || 0;
-                                const degradation = record.degradation_score || record.degradation_score_smoothed || 0;
-                                return (
-                                    <TableRow key={i} hover>
-                                        <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>
-                                            {new Date(record.timestamp).toLocaleString()}
-                                        </TableCell>
-                                        <TableCell sx={{ fontWeight: 'bold', color: failProb > 0.8 ? 'error.main' : failProb > 0.5 ? 'warning.main' : 'success.main' }}>
-                                            {(failProb * 100).toFixed(1)}%
-                                        </TableCell>
-                                        <TableCell sx={{ fontWeight: 'bold', color: degradation > 0.7 ? 'error.main' : degradation > 0.4 ? 'warning.main' : 'success.main' }}>
-                                            {(degradation * 100).toFixed(1)}%
-                                        </TableCell>
-                                        <TableCell>{formatVal(record.bpfi_amp, 4)}</TableCell>
-                                        <TableCell>{formatVal(record.bpfo_amp, 4)}</TableCell>
-                                        <TableCell>{formatVal(record.rotational_speed, 0)}</TableCell>
-                                    </TableRow>
-                                );
-                            })}
-                            {machineMessages.length === 0 && history.length === 0 && (
-                                <TableRow>
-                                    <TableCell colSpan={6} align="center" sx={{ py: 4, color: 'text.secondary' }}>
-                                        No data available. Waiting for sensor readings...
-                                    </TableCell>
-                                </TableRow>
+            )
+        },
+        maintenance_rec: {
+            id: 'maintenance_rec',
+            content: (
+                <MaintenanceRecommendationCard
+                    machine={machine}
+                    latestData={history[history.length - 1]}
+                />
+            )
+        },
+        trend_degradation: {
+            id: 'trend_degradation',
+            content: <DegradationTrendChart data={history} syncId="machineSync" />
+        },
+        trend_faults: {
+            id: 'trend_faults',
+            content: (
+                <BearingFaultTrendsChart
+                    data={history}
+                    alerts={machineMessages}
+                    syncId="machineSync"
+                />
+            )
+        },
+        panel_faults: {
+            id: 'panel_faults',
+            content: <BearingFaultPanel data={history} />
+        },
+        panel_features: {
+            id: 'panel_features',
+            content: (
+                <FeatureImportancePanel
+                    data={history}
+                    failureProbability={machine.failure_probability}
+                />
+            )
+        },
+        feature_log: {
+            id: 'feature_log',
+            content: (
+                <Card variant="outlined" sx={{ height: '100%', borderRadius: 2, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                    <Box sx={{ px: 3, py: 2, borderBottom: 1, borderColor: 'divider', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Stack direction="row" spacing={2} alignItems="center">
+                            <Typography variant="subtitle1" fontWeight="bold">Feature Log</Typography>
+                            {machineMessages.length > 0 ? (
+                                <Chip label="LIVE" color="success" size="small" variant="outlined" />
+                            ) : (
+                                <Chip label="HISTORICAL" color="default" size="small" variant="outlined" />
                             )}
-                        </TableBody>
-                    </Table>
-                </TableContainer>
-            </Card>
+                        </Stack>
+                        <Typography variant="caption" color="text.secondary" fontFamily="monospace">
+                            {machineMessages.length > 0 ? `${machineMessages.length} live events` : `${history.length} records`}
+                        </Typography>
+                    </Box>
+                    <TableContainer sx={{ flexGrow: 1, overflow: 'auto' }}>
+                        <Table stickyHeader size="small">
+                            <TableHead>
+                                <TableRow>
+                                    <TableCell>Timestamp</TableCell>
+                                    <TableCell>Failure Prob</TableCell>
+                                    <TableCell>Degradation</TableCell>
+                                    <TableCell>BPFI</TableCell>
+                                    <TableCell>BPFO</TableCell>
+                                    <TableCell>Speed (RPM)</TableCell>
+                                </TableRow>
+                            </TableHead>
+                            <TableBody>
+                                {(machineMessages.length > 0 ? machineMessages.slice(0, 20) : [...history].reverse().slice(0, 20)).map((record, i) => {
+                                    const failProb = record.failure_probability || record.failure_prediction || 0;
+                                    const degradation = record.degradation_score || record.degradation_score_smoothed || 0;
+                                    return (
+                                        <TableRow key={i} hover>
+                                            <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>
+                                                {new Date(record.timestamp).toLocaleString()}
+                                            </TableCell>
+                                            <TableCell sx={{ fontWeight: 'bold', color: failProb > 0.8 ? 'error.main' : failProb > 0.5 ? 'warning.main' : 'success.main' }}>
+                                                {(failProb * 100).toFixed(1)}%
+                                            </TableCell>
+                                            <TableCell sx={{ fontWeight: 'bold', color: degradation > 0.7 ? 'error.main' : degradation > 0.4 ? 'warning.main' : 'success.main' }}>
+                                                {(degradation * 100).toFixed(1)}%
+                                            </TableCell>
+                                            <TableCell>{formatVal(record.bpfi_amp, 4)}</TableCell>
+                                            <TableCell>{formatVal(record.bpfo_amp, 4)}</TableCell>
+                                            <TableCell>{formatVal(record.rotational_speed, 0)}</TableCell>
+                                        </TableRow>
+                                    );
+                                })}
+                                {machineMessages.length === 0 && history.length === 0 && (
+                                    <TableRow>
+                                        <TableCell colSpan={6} align="center" sx={{ py: 4, color: 'text.secondary' }}>
+                                            No data available. Waiting for sensor readings...
+                                        </TableCell>
+                                    </TableRow>
+                                )}
+                            </TableBody>
+                        </Table>
+                    </TableContainer>
+                </Card>
+            )
+        },
+        cmms_metrics: { id: 'cmms_metrics', content: <ReliabilityMetricsCard machineId={machine.machine_id} /> },
+        cmms_rul: { id: 'cmms_rul', content: <ShiftAwareRUL baseRulDays={machine.rul_days || 30} machineId={machine.machine_id} /> },
+        cmms_alarms: { id: 'cmms_alarms', content: <ActiveAlarmFeed machineId={machine.machine_id} /> },
+        cmms_orders: { id: 'cmms_orders', content: <WorkOrderPanel machine={machine} /> },
 
-            {/* --- ENTERPRISE CMMS SECTION --- */}
-            <Box sx={{ pt: 3, borderTop: 1, borderColor: 'divider' }}>
-                <Typography variant="h6" fontWeight="bold" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <Box sx={{ width: 6, height: 24, bgcolor: 'primary.main', borderRadius: 1 }} />
-                    Enterprise Integration
-                </Typography>
+    }), [machine, history, machineMessages, isCritical, isWarning]);
 
-                <Grid container spacing={3} sx={{ mb: 3 }}>
-                    <Grid item xs={12} lg={6}>
-                        <ReliabilityMetricsCard machineId={machine.machine_id} />
-                    </Grid>
-                    <Grid item xs={12} lg={6}>
-                        <ShiftAwareRUL
-                            baseRulDays={machine.rul_days || 30}
-                            machineId={machine.machine_id}
-                        />
-                    </Grid>
-                </Grid>
+    // Merge content and positions
+    const gridItems = useMemo(() => {
+        const items = {};
+        Object.keys(widgetsContent).forEach(key => {
+            const pos = layoutPositions[key] || { x: 0, y: 0, w: 400, h: 400 };
+            items[key] = {
+                ...widgetsContent[key],
+                x: pos.x,
+                y: pos.y,
+                width: pos.w,
+                height: pos.h
+            };
+        });
+        return items;
+    }, [layoutPositions, widgetsContent]);
 
-                <Grid container spacing={3}>
-                    <Grid item xs={12} lg={6}>
-                        <ActiveAlarmFeed machineId={machine.machine_id} />
-                    </Grid>
-                    <Grid item xs={12} lg={6}>
-                        <WorkOrderPanel machine={machine} />
-                    </Grid>
-                </Grid>
-            </Box>
-        </Box>
+    return (
+        <Box sx={{ flexGrow: 1 }}>
+            <DashboardGrid
+                items={gridItems}
+                onUpdate={handleUpdate}
+            >
+                {/* Static Header & Navigation */}
+                <Box sx={{ p: 0, pt: 2, px: 1, pointerEvents: 'none', maxWidth: '100%' }}>
+                    <Box sx={{ pointerEvents: 'auto' }}>
+                        {onBack && (
+                            <Button
+                                startIcon={<ArrowLeft size={16} />}
+                                onClick={onBack}
+                                sx={{ mb: 2, color: 'text.secondary' }}
+                            >
+                                Back to Overview
+                            </Button>
+                        )}
+
+                        <Box sx={{ mb: 4, pb: 2, borderBottom: 1, borderColor: 'divider' }}>
+                            <Breadcrumbs separator={<NavigateNext fontSize="small" />} sx={{ mb: 2 }}>
+                                <Link underline="hover" color="inherit" href="#">Plant</Link>
+                                <Link underline="hover" color="inherit" href="#">{machine.line_name || 'Unassigned Line'}</Link>
+                                <Typography color="text.primary" fontWeight="medium">{machine.machine_id}</Typography>
+                            </Breadcrumbs>
+
+                            <Grid container alignItems="center" justifyContent="space-between" spacing={2}>
+                                <Grid item>
+                                    <Stack direction="row" spacing={2} alignItems="center">
+                                        <Box>
+                                            <Typography variant="h4" fontWeight="bold">{machine.machine_id}</Typography>
+                                            <Typography variant="body2" color="text.secondary">
+                                                {machine.model_number || 'Unknown Model'} • Installed {machine.install_date || 'N/A'}
+                                            </Typography>
+                                        </Box>
+                                        <Chip
+                                            label={machine.operational_status || 'OFFLINE'}
+                                            color={machine.operational_status === 'RUNNING' ? 'success' : 'default'}
+                                            variant="outlined"
+                                            sx={{ fontWeight: 'bold' }}
+                                        />
+                                    </Stack>
+                                </Grid>
+
+                                <Grid item>
+                                    <Chip
+                                        icon={<Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: isCritical ? 'error.main' : isWarning ? 'warning.main' : 'success.main', ml: 1, mr: -0.5, animation: 'pulse 2s infinite' }} />}
+                                        label={isCritical ? 'CRITICAL FAILURE' : isWarning ? 'WARNING' : 'HEALTHY'}
+                                        color={isCritical ? 'error' : isWarning ? 'warning' : 'success'}
+                                        sx={{ px: 1, py: 2.5, fontWeight: 'bold', fontSize: '0.875rem' }}
+                                    />
+                                </Grid>
+                            </Grid>
+                        </Box>
+                    </Box>
+                </Box>
+            </DashboardGrid>
+
+
+            {/* Maintenance Modal */}
+            <MaintenanceModal
+                open={isScheduling}
+                machines={[machine]}
+                onClose={() => setIsScheduling(false)}
+                onConfirm={handleConfirmSchedule}
+            />
+
+            {/* Success Toast */}
+            <Snackbar open={showSuccess} autoHideDuration={4000} onClose={() => setShowSuccess(false)}>
+                <Alert onClose={() => setShowSuccess(false)} severity="success" sx={{ width: '100%', fontWeight: 'bold' }}>
+                    Maintenance Scheduled Successfully
+                </Alert>
+            </Snackbar>
+        </Box >
     );
 }
 

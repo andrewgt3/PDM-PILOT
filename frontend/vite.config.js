@@ -10,7 +10,12 @@ export default defineConfig({
     proxy: {
       '/api': {
         target: 'http://localhost:8000',
-        changeOrigin: true
+        changeOrigin: true,
+        configure: (proxy) => {
+          proxy.on('error', (err, req, res) => {
+            console.error('\n⚠️  API proxy error - is the backend running? Start with: npm run dev (from project root)\n', err.message);
+          });
+        }
       },
       '/ws': {
         target: 'ws://localhost:8000',

@@ -109,6 +109,7 @@ CREATE TABLE IF NOT EXISTS cwru_features (
     
     -- Degradation Features (1)
     degradation_score FLOAT,
+    degradation_score_smoothed FLOAT,
     
     -- Telemetry Features (4)
     rotational_speed FLOAT,

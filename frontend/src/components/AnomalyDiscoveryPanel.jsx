@@ -12,11 +12,84 @@ import {
  */
 function AnomalyDiscoveryPanel({ machineId = null }) {
     const [activeTab, setActiveTab] = useState('anomalies');
-    const [anomalies, setAnomalies] = useState([]);
-    const [correlations, setCorrelations] = useState([]);
-    const [insights, setInsights] = useState([]);
-    const [status, setStatus] = useState({ is_trained: false });
-    const [loading, setLoading] = useState(true);
+
+    // Mock Data for Demonstration
+    const mockAnomalies = [
+        {
+            detection_id: 'det_001',
+            severity: 'critical',
+            machine_id: 'CNC-004',
+            timestamp: new Date(Date.now() - 1000 * 60 * 15).toISOString(), // 15 mins ago
+            anomaly_type: 'collective',
+            ensemble_score: 0.92,
+            confidence: 0.88,
+            reviewed: false
+        },
+        {
+            detection_id: 'det_002',
+            severity: 'high',
+            machine_id: 'ROBOT-ARM-02',
+            timestamp: new Date(Date.now() - 1000 * 60 * 45).toISOString(), // 45 mins ago
+            anomaly_type: 'point',
+            ensemble_score: 0.78,
+            confidence: 0.82,
+            reviewed: false
+        },
+        {
+            detection_id: 'det_003',
+            severity: 'medium',
+            machine_id: 'CONVEYOR-01',
+            timestamp: new Date(Date.now() - 1000 * 60 * 120).toISOString(), // 2 hours ago
+            anomaly_type: 'contextual',
+            ensemble_score: 0.65,
+            confidence: 0.70,
+            reviewed: true
+        }
+    ];
+
+    const mockCorrelations = [
+        {
+            source_machine_id: 'CNC-004',
+            target_machine_id: 'ROBOT-ARM-02',
+            source_feature: 'vibration_y',
+            target_feature: 'motor_current',
+            correlation_coefficient: 0.85,
+            lag_hours: 2,
+            strength: 'strong',
+            granger_causal: true
+        },
+        {
+            source_machine_id: 'HVAC-01',
+            target_machine_id: 'CNC-004',
+            source_feature: 'ambient_temp',
+            target_feature: 'spindle_temp',
+            correlation_coefficient: 0.72,
+            lag_hours: 0,
+            strength: 'moderate',
+            granger_causal: false
+        }
+    ];
+
+    const mockInsights = [
+        {
+            priority: 'high',
+            insight_type: 'Optimization',
+            title: 'Cooling Efficiency Drop',
+            summary: 'Correlation detected between ambient temperature rise and spindle overheating events.'
+        },
+        {
+            priority: 'medium',
+            insight_type: 'Maintenance',
+            title: 'Bearing Wear Pattern',
+            summary: 'Vibration signature matches known bearing degradation profile (Type B).'
+        }
+    ];
+
+    const [anomalies, setAnomalies] = useState(mockAnomalies);
+    const [correlations, setCorrelations] = useState(mockCorrelations);
+    const [insights, setInsights] = useState(mockInsights);
+    const [status, setStatus] = useState({ is_trained: true }); // Mock trained status
+    const [loading, setLoading] = useState(false); // Start interactive immediately
     const [detecting, setDetecting] = useState(false);
 
     const API_BASE = 'http://localhost:8000/api/discovery';
@@ -147,9 +220,9 @@ function AnomalyDiscoveryPanel({ machineId = null }) {
     }
 
     return (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="h-full flex flex-col bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
             {/* Header */}
-            <div className="px-5 py-4 border-b border-slate-100 bg-gradient-to-r from-indigo-50 to-purple-50">
+            <div className="shrink-0 px-5 py-4 border-b border-slate-100 bg-gradient-to-r from-indigo-50 to-purple-50">
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
                         <div className="p-2 bg-indigo-100 rounded-lg">
@@ -195,8 +268,8 @@ function AnomalyDiscoveryPanel({ machineId = null }) {
                         key={tab.id}
                         onClick={() => setActiveTab(tab.id)}
                         className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium transition-colors ${activeTab === tab.id
-                                ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50'
-                                : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+                            ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50'
+                            : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
                             }`}
                     >
                         <tab.icon className="w-4 h-4" />
@@ -212,7 +285,7 @@ function AnomalyDiscoveryPanel({ machineId = null }) {
             </div>
 
             {/* Content */}
-            <div className="max-h-96 overflow-y-auto">
+            <div className="flex-1 overflow-y-auto min-h-0">
                 {/* Anomalies Tab */}
                 {activeTab === 'anomalies' && (
                     <div className="divide-y divide-slate-100">
@@ -333,8 +406,8 @@ function AnomalyDiscoveryPanel({ machineId = null }) {
                                 <div key={idx} className="px-5 py-4 hover:bg-slate-50">
                                     <div className="flex items-center gap-2 mb-2">
                                         <span className={`px-2 py-0.5 text-[10px] font-bold rounded ${i.priority === 'high' ? 'bg-red-100 text-red-700' :
-                                                i.priority === 'medium' ? 'bg-amber-100 text-amber-700' :
-                                                    'bg-blue-100 text-blue-700'
+                                            i.priority === 'medium' ? 'bg-amber-100 text-amber-700' :
+                                                'bg-blue-100 text-blue-700'
                                             }`}>
                                             {i.priority?.toUpperCase()}
                                         </span>

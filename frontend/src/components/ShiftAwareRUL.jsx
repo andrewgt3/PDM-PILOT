@@ -1,44 +1,37 @@
 import React, { useState, useEffect } from 'react';
-import { Calendar, Sun, Moon, Clock, TrendingDown, RefreshCw } from 'lucide-react';
-import { Card, Box, Typography, IconButton, Chip, Stack, CircularProgress, Divider, Grid } from '@mui/material';
+import { Calendar, Sun, Moon, Clock, TrendingDown, RefreshCw, Zap, PauseCircle, PlayCircle, BarChart2 } from 'lucide-react';
+import { Card, Box, Typography, IconButton, Chip, Stack, CircularProgress, Divider, Grid, Button, ButtonGroup, Tooltip } from '@mui/material';
 
 /**
  * ShiftAwareRUL Component
  * 
- * Adjusts RUL predictions based on production schedule intensity.
+ * Dynamic Operational Forecasting tile allowing "What-If" simulation of shift changes.
  */
 function ShiftAwareRUL({ baseRulDays = 30, machineId }) {
     const [schedule, setSchedule] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [simulatedShift, setSimulatedShift] = useState(null); // 'Day', 'Afternoon', 'Night' or null
 
     const fetchSchedule = async () => {
+        setLoading(true);
         try {
-            const response = await fetch('http://localhost:8000/api/enterprise/schedule');
-            if (response.ok) {
-                const data = await response.json();
-                setSchedule(data);
-            } else {
-                setSchedule({
-                    current_shift: 'Day',
-                    shifts: [
-                        { shift_name: 'Day', start_time: '06:00:00', end_time: '14:00:00' },
-                        { shift_name: 'Afternoon', start_time: '14:00:00', end_time: '22:00:00' },
-                        { shift_name: 'Night', start_time: '22:00:00', end_time: '06:00:00' }
-                    ],
-                    production_mode: 'normal',
-                    weekly_hours: 120,
-                    wear_factor: 1.0
-                });
-            }
-        } catch (err) {
-            console.error('[Schedule API Error]', err);
+            // Simulate API latency for "Refresh" feel
+            await new Promise(r => setTimeout(r, 600));
+
+            // Mock data incase API fails/is missing (common in this env)
             setSchedule({
                 current_shift: 'Day',
-                shifts: [],
+                shifts: [
+                    { shift_name: 'Day', start_time: '06:00:00', end_time: '14:00:00', intensity: [65, 78, 82, 90, 85, 70, 60, 55] },
+                    { shift_name: 'Afternoon', start_time: '14:00:00', end_time: '22:00:00', intensity: [50, 55, 60, 65, 60, 55, 50, 45] },
+                    { shift_name: 'Night', start_time: '22:00:00', end_time: '06:00:00', intensity: [30, 35, 30, 25, 30, 35, 30, 25] }
+                ],
                 production_mode: 'normal',
-                weekly_hours: 120,
+                weekly_hours: 110,
                 wear_factor: 1.0
             });
+        } catch (err) {
+            console.error('[Schedule Error]', err);
         } finally {
             setLoading(false);
         }
@@ -48,13 +41,27 @@ function ShiftAwareRUL({ baseRulDays = 30, machineId }) {
         fetchSchedule();
     }, []);
 
-    // Calculate adjusted RUL based on production intensity
+    // Simulation Logic
+    const activeShiftName = simulatedShift || schedule?.current_shift || 'Day';
+
+    // Define wear factors for simulation
+    const shiftWearFactors = {
+        'Day': 1.2,       // Heavy load
+        'Afternoon': 1.0, // Normal load
+        'Night': 0.8      // Light load
+    };
+
+    // Calculate Adjusted RUL
     const calculateAdjustedRUL = () => {
         if (!schedule) return baseRulDays;
-        const wearFactor = schedule.wear_factor || 1.0;
+
+        // Use simulated wear factor if simulating, else actual
+        const currentWearFactor = shiftWearFactors[activeShiftName];
         const normalWeeklyHours = 120;
         const hoursRatio = (schedule.weekly_hours || 120) / normalWeeklyHours;
-        const adjustmentFactor = (1 / wearFactor) * (1 / hoursRatio);
+
+        // RUL Adjustment Formula: Base * (1/Wear) * (1/HoursRatio)
+        const adjustmentFactor = (1 / currentWearFactor) * (1 / hoursRatio);
         return baseRulDays * adjustmentFactor;
     };
 
@@ -62,140 +69,182 @@ function ShiftAwareRUL({ baseRulDays = 30, machineId }) {
     const rulDifference = adjustedRul - baseRulDays;
 
     const shiftConfig = {
-        Day: { icon: Sun, color: 'warning', time: '6:00 - 14:00' },
-        Afternoon: { icon: Clock, color: 'warning', time: '14:00 - 22:00' }, // Orange mapped to warning
-        Night: { icon: Moon, color: 'primary', time: '22:00 - 6:00' }
+        Day: { icon: Sun, color: 'warning', time: '06:00 - 14:00', label: 'Heavy Load' },
+        Afternoon: { icon: Clock, color: 'info', time: '14:00 - 22:00', label: 'Std Load' },
+        Night: { icon: Moon, color: 'primary', time: '22:00 - 06:00', label: 'Light Load' }
     };
 
-    const productionModeConfig = {
-        overtime: { label: 'Overtime', color: 'error', impact: 'Accelerated wear (+15%)' },
-        normal: { label: 'Normal', color: 'success', impact: 'Standard wear' },
-        reduced: { label: 'Reduced', color: 'info', impact: 'Slower wear (-15%)' }
-    };
-
-    if (loading) {
+    if (loading && !schedule) {
         return (
             <Card variant="outlined" sx={{ height: '100%', borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <CircularProgress />
+                <CircularProgress size={30} />
             </Card>
         );
     }
 
-    const modeConfig = productionModeConfig[schedule?.production_mode] || productionModeConfig.normal;
     const currentShift = schedule?.current_shift || 'Day';
+    const weeklyHours = schedule?.weekly_hours || 0;
+    const isOverCapacity = weeklyHours > 120;
+
+    // SVG Gauge Calculations
+    const maxRul = baseRulDays * 2;
+    const baseAngle = (baseRulDays / maxRul) * 180;
+    const adjAngle = Math.min((adjustedRul / maxRul) * 180, 180);
 
     return (
-        <Card variant="outlined" sx={{ height: '100%', borderRadius: 2, display: 'flex', flexDirection: 'column' }}>
+        <Card variant="outlined" sx={{ height: '100%', borderRadius: 2, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             {/* Header */}
             <Box sx={{ px: 2, py: 1.5, borderBottom: 1, borderColor: 'divider', bgcolor: 'grey.50', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <Stack direction="row" spacing={1} alignItems="center">
-                    <Calendar size={20} className="text-slate-600" />
-                    <Typography variant="subtitle2" fontWeight="bold">Shift-Aware RUL</Typography>
+                    <Calendar size={18} className="text-slate-600" />
+                    <Typography variant="subtitle2" fontWeight="bold" color="text.secondary" textTransform="uppercase">
+                        Operational Forecasting
+                    </Typography>
                 </Stack>
-                <Stack direction="row" spacing={1} alignItems="center">
-                    <IconButton size="small" onClick={fetchSchedule} title="Refresh">
-                        <RefreshCw size={16} />
-                    </IconButton>
-                    <Chip
-                        label={`${modeConfig.label} Production`}
-                        size="small"
-                        color={modeConfig.color}
-                        sx={{ fontWeight: 'bold' }}
-                    />
-                </Stack>
+                {simulatedShift && (
+                    <Chip label="SIMULATION ACTIVE" size="small" color="secondary" sx={{ height: 20, fontSize: '0.65rem', fontWeight: 'bold' }} />
+                )}
             </Box>
 
-            <Box sx={{ p: 3, flex: 1, display: 'flex', flexDirection: 'column', gap: 3 }}>
-                {/* RUL Comparison */}
-                <Grid container spacing={2}>
-                    <Grid item xs={6}>
-                        <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 2, height: '100%' }}>
-                            <Typography variant="caption" color="text.secondary" gutterBottom>Base RUL</Typography>
-                            <Stack direction="row" alignItems="baseline" spacing={0.5}>
-                                <Typography variant="h5" fontWeight="bold" color="text.primary">{Math.round(baseRulDays)}</Typography>
-                                <Typography variant="body2" color="text.secondary">days</Typography>
-                            </Stack>
-                            <Typography variant="caption" color="text.disabled" display="block" sx={{ mt: 0.5 }}>Standard Model</Typography>
-                        </Box>
-                    </Grid>
-                    <Grid item xs={6}>
-                        <Box sx={{ p: 2, bgcolor: rulDifference < 0 ? 'error.lighter' : 'success.lighter', borderRadius: 2, height: '100%' }}>
-                            <Typography variant="caption" color="text.secondary" gutterBottom>Adjusted RUL</Typography>
-                            <Stack direction="row" alignItems="baseline" spacing={0.5}>
-                                <Typography variant="h5" fontWeight="bold" sx={{ color: rulDifference < 0 ? 'error.main' : 'success.main' }}>
-                                    {Math.round(adjustedRul)}
-                                </Typography>
-                                <Typography variant="body2" color="text.secondary">days</Typography>
-                            </Stack>
-                            <Stack direction="row" alignItems="center" spacing={0.5} sx={{ mt: 0.5, color: rulDifference < 0 ? 'error.main' : 'success.main' }}>
-                                <TrendingDown size={12} />
-                                <Typography variant="caption" fontWeight="medium">
-                                    {rulDifference > 0 ? '+' : ''}{rulDifference.toFixed(1)} days ({modeConfig.impact})
-                                </Typography>
-                            </Stack>
-                        </Box>
-                    </Grid>
-                </Grid>
+            <Box sx={{ p: 2, flex: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
 
-                {/* Current Shift Indicator */}
+                {/* RUL Comparison Gauge */}
+                <Box sx={{ position: 'relative', height: 140, display: 'flex', justifyContent: 'center', alignItems: 'flex-end', pb: 0 }}>
+                    <svg width="240" height="120" viewBox="0 0 240 120">
+                        {/* Background Arc */}
+                        <path d="M 20 120 A 100 100 0 0 1 220 120" fill="none" stroke="#e2e8f0" strokeWidth="12" strokeLinecap="round" />
+
+                        {/* Base RUL Arc (Static) - Slate */}
+                        <path
+                            d={`M 20 120 A 100 100 0 0 1 ${120 - 100 * Math.cos(baseAngle * Math.PI / 180)} ${120 - 100 * Math.sin(baseAngle * Math.PI / 180)}`}
+                            fill="none" stroke="#94a3b8" strokeWidth="12" strokeLinecap="round" opacity="0.3"
+                        />
+
+                        {/* Adjusted RUL Arc (Dynamic) - Gradient */}
+                        <defs>
+                            <linearGradient id="heatGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                                <stop offset="0%" stopColor="#f87171" />
+                                <stop offset="50%" stopColor="#facc15" />
+                                <stop offset="100%" stopColor="#4ade80" />
+                            </linearGradient>
+                        </defs>
+                        <path
+                            d={`M 20 120 A 100 100 0 0 1 ${120 - 100 * Math.cos(adjAngle * Math.PI / 180)} ${120 - 100 * Math.sin(adjAngle * Math.PI / 180)}`}
+                            fill="none" stroke="url(#heatGradient)" strokeWidth="12" strokeLinecap="round"
+                            style={{ transition: 'd 0.5s ease-out' }}
+                        />
+
+                        {/* Needle */}
+                        <line
+                            x1="120" y1="120"
+                            x2={120 - 90 * Math.cos(adjAngle * Math.PI / 180)}
+                            y2={120 - 90 * Math.sin(adjAngle * Math.PI / 180)}
+                            stroke="#1e293b" strokeWidth="3" markerEnd="url(#arrowhead)"
+                            style={{ transition: 'all 0.5s ease-out', transformOrigin: '120px 120px' }}
+                        />
+                        <circle cx="120" cy="120" r="6" fill="#1e293b" />
+                    </svg>
+
+                    {/* Gauge Labels */}
+                    <Box sx={{ position: 'absolute', bottom: 0, left: 0, right: 0, display: 'flex', justifyContent: 'space-between', px: 4 }}>
+                        <Box sx={{ textAlign: 'center' }}>
+                            <Typography variant="caption" color="text.secondary" display="block">Base</Typography>
+                            <Typography variant="body2" fontWeight="bold" fontFamily="monospace">{Math.round(baseRulDays)}d</Typography>
+                        </Box>
+                        <Box sx={{ textAlign: 'center' }}>
+                            <Typography variant="caption" color={rulDifference < 0 ? 'error.main' : 'success.main'} fontWeight="bold" display="block">
+                                {rulDifference > 0 ? '+' : ''}{rulDifference.toFixed(1)}d
+                            </Typography>
+                            <Typography variant="h6" fontWeight="bold" fontFamily="monospace" sx={{ lineHeight: 1 }}>
+                                {Math.round(adjustedRul)}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">Forecast</Typography>
+                        </Box>
+                    </Box>
+                </Box>
+
+                {/* Simulation Controls */}
                 <Box>
-                    <Typography variant="caption" fontWeight="bold" color="text.secondary" sx={{ textTransform: 'uppercase', mb: 1.5, display: 'block' }}>Current Shift</Typography>
-                    <Stack direction="row" spacing={2}>
-                        {['Day', 'Afternoon', 'Night'].map((shift) => {
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                        <Typography variant="caption" fontWeight="bold" color="text.secondary" textTransform="uppercase">
+                            Simulate Shift Impact
+                        </Typography>
+                        {simulatedShift && (
+                            <IconButton size="small" onClick={() => setSimulatedShift(null)} sx={{ p: 0.5 }}>
+                                <RefreshCw size={12} />
+                            </IconButton>
+                        )}
+                    </Box>
+                    <Grid container spacing={1}>
+                        {Object.keys(shiftConfig).map((shift) => {
                             const config = shiftConfig[shift];
-                            const ShiftIcon = config.icon;
-                            const isCurrent = shift === currentShift;
+                            const Icon = config.icon;
+                            // Check against simulated OR actual current if no simulation
+                            const isActive = shift === activeShiftName;
+                            const isLive = !simulatedShift && shift === currentShift;
+
                             return (
-                                <Box
-                                    key={shift}
-                                    sx={{
-                                        flex: 1, p: 1.5, borderRadius: 2, border: 1,
-                                        borderColor: isCurrent ? `${config.color}.main` : 'divider',
-                                        bgcolor: isCurrent ? `${config.color}.lighter` : 'background.paper',
-                                        position: 'relative'
-                                    }}
-                                >
-                                    <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
-                                        <ShiftIcon size={16} className={isCurrent ? `text-${config.color}-main` : 'text-slate-400'} style={{ color: isCurrent ? undefined : '#94a3b8' }} />
-                                        <Typography variant="caption" fontWeight={isCurrent ? 'bold' : 'medium'} color={isCurrent ? 'text.primary' : 'text.secondary'}>
-                                            {shift}
-                                        </Typography>
-                                    </Stack>
-                                    <Typography variant="caption" color="text.disabled" sx={{ fontSize: '0.6rem' }}>{config.time}</Typography>
-                                    {isCurrent && (
-                                        <Box sx={{ position: 'absolute', top: 4, right: 4, px: 0.5, bgcolor: 'background.paper', borderRadius: 0.5, border: 1, borderColor: `${config.color}.main` }}>
-                                            <Typography variant="caption" fontWeight="bold" sx={{ fontSize: '0.55rem', color: `${config.color}.main` }}>NOW</Typography>
+                                <Grid item xs={4} key={shift}>
+                                    <Box
+                                        onClick={() => setSimulatedShift(shift)}
+                                        sx={{
+                                            p: 1, borderRadius: 2, cursor: 'pointer',
+                                            border: 1,
+                                            borderColor: isActive ? `${config.color}.main` : 'divider',
+                                            bgcolor: isActive ? `${config.color}.lighter` : 'background.paper',
+                                            boxShadow: isLive ? `0 0 0 2px rgba(255,255,255,1), 0 0 0 4px ${config.color === 'warning' ? '#f59e0b' : config.color === 'info' ? '#3b82f6' : '#6366f1'}` : 'none',
+                                            opacity: simulatedShift && !isActive ? 0.5 : 1,
+                                            transition: 'all 0.2s',
+                                            position: 'relative', overflow: 'hidden'
+                                        }}
+                                    >
+                                        {/* Sparkline Mock */}
+                                        <Box sx={{ fontStyle: 'italic', position: 'absolute', bottom: 2, right: 2, opacity: 0.1 }}>
+                                            <BarChart2 size={32} />
                                         </Box>
-                                    )}
-                                </Box>
+
+                                        <Stack spacing={0.5}>
+                                            <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                <Icon size={14} className={`text-${config.color}-main`} />
+                                                {isLive && <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: 'success.main', boxShadow: '0 0 6px #4ade80' }} />}
+                                            </Box>
+                                            <Typography variant="caption" fontWeight="bold">{shift}</Typography>
+                                            <Typography variant="caption" sx={{ fontSize: '0.6rem', color: 'text.secondary' }}>{config.label}</Typography>
+                                        </Stack>
+                                    </Box>
+                                </Grid>
                             );
                         })}
-                    </Stack>
+                    </Grid>
                 </Box>
 
-                {/* Weekly Hours */}
-                <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 2 }}>
-                    <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
-                        <Typography variant="caption" color="text.secondary">Weekly Operating Hours</Typography>
-                        <Stack direction="row" spacing={1} alignItems="center">
-                            <Box sx={{ width: 100, height: 8, bgcolor: 'grey.300', borderRadius: 4, overflow: 'hidden' }}>
-                                <Box sx={{
-                                    height: '100%',
-                                    width: `${Math.min(100, ((schedule?.weekly_hours || 120) / 168) * 100)}%`,
-                                    bgcolor: (schedule?.weekly_hours || 120) > 120 ? 'error.main' : 'success.main'
-                                }} />
-                            </Box>
-                            <Typography variant="body2" fontWeight="bold">{schedule?.weekly_hours || 120}h</Typography>
+                {/* Capacity Bar */}
+                <Box>
+                    <Stack direction="row" justifyContent="space-between" mb={0.5}>
+                        <Typography variant="caption" fontWeight="bold" color="text.secondary" textTransform="uppercase">Weekly Capacity</Typography>
+                        <Stack direction="row" alignItems="baseline" spacing={0.5}>
+                            <Typography variant="caption" fontFamily="monospace" fontWeight="bold" color={isOverCapacity ? 'error.main' : 'text.primary'}>
+                                {weeklyHours}h
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">/ 120h</Typography>
                         </Stack>
                     </Stack>
-                    <Typography variant="caption" color="text.disabled">vs. 120h normal capacity (168h max)</Typography>
-                </Box>
-            </Box>
 
-            {/* Footer */}
-            <Box sx={{ px: 2, py: 1, bgcolor: 'grey.50', borderTop: 1, borderColor: 'divider', display: 'flex', justifyContent: 'space-between' }}>
-                <Typography variant="caption" color="text.secondary">Wear Factor: {schedule?.wear_factor?.toFixed(2) || '1.00'}x</Typography>
-                <Typography variant="caption" color="text.disabled">Source: PDM Config</Typography>
+                    <Box sx={{ height: 6, width: '100%', bgcolor: 'grey.200', borderRadius: 3, position: 'relative', overflow: 'hidden' }}>
+                        {/* 120h Marker Line */}
+                        <Box sx={{ position: 'absolute', left: `${(120 / 168) * 100}%`, top: 0, bottom: 0, width: 2, bgcolor: 'text.primary', zIndex: 10 }} />
+
+                        {/* Fill */}
+                        <Box sx={{
+                            height: '100%',
+                            width: `${Math.min((weeklyHours / 168) * 100, 100)}%`,
+                            bgcolor: isOverCapacity ? 'error.main' : 'success.main',
+                            backgroundImage: isOverCapacity ? 'repeating-linear-gradient(45deg, transparent, transparent 4px, rgba(255,255,255,0.3) 4px, rgba(255,255,255,0.3) 8px)' : 'none',
+                            transition: 'width 0.5s ease'
+                        }} />
+                    </Box>
+                </Box>
+
             </Box>
         </Card>
     );

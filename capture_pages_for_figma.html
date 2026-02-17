@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Figma Page Capture Guide</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            color: #1a1a1a;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+        }
+
+        .method {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border-left: 4px solid #4CAF50;
+        }
+
+        .method h2 {
+            margin-top: 0;
+            color: #2c3e50;
+        }
+
+        .pages-list {
+            background: #fff3cd;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 20px 0;
+        }
+
+        .pages-list h3 {
+            margin-top: 0;
+            color: #856404;
+        }
+
+        .page-item {
+            padding: 8px 0;
+            border-bottom: 1px solid #ffeaa7;
+        }
+
+        .page-item:last-child {
+            border-bottom: none;
+        }
+
+        button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 5px;
+        }
+
+        button:hover {
+            background: #45a049;
+        }
+
+        .code-block {
+            background: #2d2d2d;
+            color: #f8f8f2;
+            padding: 15px;
+            border-radius: 6px;
+            overflow-x: auto;
+            margin: 15px 0;
+        }
+
+        .step {
+            margin: 15px 0;
+            padding-left: 30px;
+            position: relative;
+        }
+
+        .step::before {
+            content: "→";
+            position: absolute;
+            left: 10px;
+            color: #4CAF50;
+            font-weight: bold;
+        }
+
+        .warning {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>🎨 Capture PDM Dashboard for Figma</h1>
+        <p class="subtitle">Complete guide to export all pages to Figma</p>
+
+        <div class="pages-list">
+            <h3>📄 Pages to Capture (3 total)</h3>
+            <div class="page-item">
+                <strong>1. Plant Overview</strong> - Main dashboard with fleet treemap
+                <br><small>URL: <code>http://localhost:5173</code> (default view)</small>
+            </div>
+            <div class="page-item">
+                <strong>2. AI Anomaly Discovery</strong> - Anomaly detection and insights
+                <br><small>Click "AI Discovery" in sidebar</small>
+            </div>
+            <div class="page-item">
+                <strong>3. Machine Detail View</strong> - Individual machine analysis
+                <br><small>Click any machine from the treemap (capture 2-3 examples)</small>
+            </div>
+        </div>
+
+        <div class="method">
+            <h2>🚀 Method 1: html.to.design Plugin (Recommended)</h2>
+            <div class="step">Install plugin in Figma: Search "html.to.design"</div>
+            <div class="step">Open plugin and enter: <code>http://localhost:5173</code></div>
+            <div class="step">Manually navigate to each view and capture:
+                <ul>
+                    <li>Capture Plant Overview (default page)</li>
+                    <li>Click "AI Discovery" → Capture that view</li>
+                    <li>Click a machine → Capture detail view</li>
+                </ul>
+            </div>
+            <div class="step">Plugin will create editable Figma layers for each capture</div>
+        </div>
+
+        <div class="method">
+            <h2>📸 Method 2: Screenshot Extension (Most Reliable)</h2>
+            <div class="step">Install <strong>GoFullPage</strong> Chrome extension</div>
+            <div class="step">Navigate to: <code>http://localhost:5173</code></div>
+            <div class="step">Take screenshot #1 (Plant Overview)</div>
+            <div class="step">Click "AI Discovery" in sidebar → Take screenshot #2</div>
+            <div class="step">Click a machine from treemap → Take screenshot #3</div>
+            <div class="step">Repeat for 2-3 different machines (healthy, warning, critical)</div>
+            <div class="step">Import all screenshots to Figma</div>
+
+            <button
+                onclick="window.open('https://chrome.google.com/webstore/detail/gofullpage-full-page-scre/fdpohaocaechififmbbbbbknoalclacl', '_blank')">
+                Install GoFullPage
+            </button>
+        </div>
+
+        <div class="method">
+            <h2>⚡ Method 3: Browser DevTools Screenshots</h2>
+            <div class="step">Open DevTools (F12 or Cmd+Option+I)</div>
+            <div class="step">Press Cmd+Shift+P (Mac) or Ctrl+Shift+P (Windows)</div>
+            <div class="step">Type "screenshot" and select "Capture full size screenshot"</div>
+            <div class="step">Navigate to each view and repeat</div>
+        </div>
+
+        <div class="warning">
+            <strong>⚠️ Important:</strong> Make sure all services are running before capturing:
+            <ul style="margin: 10px 0;">
+                <li>✅ Frontend: <code>http://localhost:5173</code></li>
+                <li>✅ Backend API: <code>http://localhost:8000</code></li>
+                <li>✅ Data streaming (so you see live data)</li>
+            </ul>
+        </div>
+
+        <div class="method">
+            <h2>🎯 Quick Capture Checklist</h2>
+            <div style="margin-top: 15px;">
+                <label style="display: block; margin: 8px 0;">
+                    <input type="checkbox"> Plant Overview (main dashboard)
+                </label>
+                <label style="display: block; margin: 8px 0;">
+                    <input type="checkbox"> AI Anomaly Discovery page
+                </label>
+                <label style="display: block; margin: 8px 0;">
+                    <input type="checkbox"> Machine Detail - Healthy state
+                </label>
+                <label style="display: block; margin: 8px 0;">
+                    <input type="checkbox"> Machine Detail - Warning state
+                </label>
+                <label style="display: block; margin: 8px 0;">
+                    <input type="checkbox"> Machine Detail - Critical state
+                </label>
+            </div>
+        </div>
+
+        <div style="margin-top: 30px; padding-top: 20px; border-top: 2px solid #eee;">
+            <h3>📦 After Capturing</h3>
+            <div class="step">Create a new Figma file</div>
+            <div class="step">Import all screenshots/captures</div>
+            <div class="step">Arrange them in a logical flow</div>
+            <div class="step">Add annotations and notes</div>
+            <div class="step">Create a design system page with colors/typography</div>
+        </div>
+
+        <div style="text-align: center; margin-top: 30px;">
+            <button onclick="window.open('http://localhost:5173', '_blank')" style="background: #2196F3;">
+                Open Dashboard →
+            </button>
+            <button onclick="window.open('https://www.figma.com', '_blank')" style="background: #9C27B0;">
+                Open Figma →
+            </button>
+        </div>
+    </div>
+</body>
+
+</html>

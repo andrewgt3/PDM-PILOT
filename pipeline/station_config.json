@@ -1,0 +1,106 @@
+{
+    "node_mappings": {
+        "WB-001": {
+            "asset_name": "6-Axis Welder #1",
+            "shop": "Body Shop",
+            "line": "Underbody Weld Cell",
+            "equipment_type": "Spot Welder",
+            "opc_node_id": "ns=2;s=WB001",
+            "criticality": "high"
+        },
+        "WB-002": {
+            "asset_name": "6-Axis Welder #2",
+            "shop": "Body Shop",
+            "line": "Underbody Weld Cell",
+            "equipment_type": "Spot Welder",
+            "opc_node_id": "ns=2;s=WB002",
+            "criticality": "high"
+        },
+        "WB-003": {
+            "asset_name": "Seam Sealer Robot",
+            "shop": "Body Shop",
+            "line": "Sealer Cell",
+            "equipment_type": "Sealer",
+            "opc_node_id": "ns=2;s=WB003",
+            "criticality": "medium"
+        },
+        "PT-001": {
+            "asset_name": "E-Coat Pump #1",
+            "shop": "Paint Shop",
+            "line": "E-Coat Line",
+            "equipment_type": "Chemical Pump",
+            "opc_node_id": "ns=2;s=PT001",
+            "criticality": "high"
+        },
+        "PT-002": {
+            "asset_name": "Spray Robot #1",
+            "shop": "Paint Shop",
+            "line": "Topcoat Booth",
+            "equipment_type": "Paint Robot",
+            "opc_node_id": "ns=2;s=PT002",
+            "criticality": "high"
+        },
+        "GA-001": {
+            "asset_name": "Chassis Carrier #1",
+            "shop": "General Assembly",
+            "line": "Trim Line",
+            "equipment_type": "Carrier",
+            "opc_node_id": "ns=2;s=GA001",
+            "criticality": "medium"
+        },
+        "GA-002": {
+            "asset_name": "Torque Gun Station",
+            "shop": "General Assembly",
+            "line": "Chassis Line",
+            "equipment_type": "Torque Tool",
+            "opc_node_id": "ns=2;s=GA002",
+            "criticality": "high"
+        },
+        "CNC-001": {
+            "asset_name": "HAAS VF-2 Mill",
+            "shop": "Machining",
+            "line": "Line A (Precision)",
+            "equipment_type": "CNC Mill",
+            "opc_node_id": "ns=2;s=CNC001",
+            "criticality": "high"
+        },
+        "CNC-002": {
+            "asset_name": "Mazak Lathe",
+            "shop": "Machining",
+            "line": "Line A (Precision)",
+            "equipment_type": "CNC Lathe",
+            "opc_node_id": "ns=2;s=CNC002",
+            "criticality": "medium"
+        },
+        "TS-001": {
+            "asset_name": "Torque Station #1",
+            "shop": "Final Assembly",
+            "line": "Chassis Line",
+            "equipment_type": "Torque Tool",
+            "opc_node_id": "ns=2;s=TS001",
+            "criticality": "high"
+        },
+        "LA-003": {
+            "asset_name": "Lift Assist #3",
+            "shop": "Final Assembly",
+            "line": "Chassis Line",
+            "equipment_type": "Ergonomic Lift",
+            "opc_node_id": "ns=2;s=LA003",
+            "criticality": "low"
+        },
+        "CV-100": {
+            "asset_name": "Main Conveyor Drive",
+            "shop": "Final Assembly",
+            "line": "Chassis Line",
+            "equipment_type": "Conveyor Motor",
+            "opc_node_id": "ns=2;s=CV100",
+            "criticality": "critical"
+        }
+    },
+    "metadata": {
+        "version": "1.0.0",
+        "plant": "PDM-PILOT Industrial Facility",
+        "last_updated": "2026-02-15T00:00:00Z",
+        "schema_version": "golden-pipeline-v1"
+    }
+}

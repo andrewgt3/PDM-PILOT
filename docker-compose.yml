@@ -1,4 +1,29 @@
+# =============================================================================
+# PDM Pilot — Golden Pipeline Docker Compose
+# =============================================================================
+# 6-Stage Industrial Data Pipeline Architecture
+#
+# Infrastructure:
+#   - TimescaleDB (time-series database)
+#   - Redis (streams + cache)
+#   - MongoDB (unstructured logs)
+#
+# Pipeline Stages:
+#   1. Ingestion    → polls hardware/simulator, publishes to raw_sensor_data
+#   2. Cleansing    → Z-score outlier detection, publishes to clean_sensor_data
+#   3. Context      → digital twin mapping, publishes to contextualized_data
+#   4. Persistence  → batch writer to TimescaleDB
+#   5. Inference    → XGBoost RUL prediction, publishes to inference_results
+#
+# Orchestration:
+#   6. API + Frontend → subscribes to inference_results for display
+# =============================================================================
+
 services:
+  # ---------------------------------------------------------------------------
+  # INFRASTRUCTURE
+  # ---------------------------------------------------------------------------
+
   # 1. PostgreSQL + TimescaleDB (Time-series)
   timescaledb:
     image: timescale/timescaledb:latest-pg16
@@ -19,10 +44,11 @@ services:
       timeout: 5s
       retries: 5
 
-  # 2. Redis (Caching / Hot Data)
+  # 2. Redis (Streams + Cache)
   redis:
     image: redis:7.2-alpine
     container_name: pdm-redis
+    command: redis-server --stop-writes-on-bgsave-error no
     ports:
       - "6379:6379"
     networks:
@@ -54,7 +80,130 @@ services:
       timeout: 5s
       retries: 5
 
-  # 4. API Service (Inference)
+  # ---------------------------------------------------------------------------
+  # PIPELINE STAGE 1: INGESTION
+  # ---------------------------------------------------------------------------
+  ingestion-svc:
+    build:
+      context: ./pipeline/ingestion
+      dockerfile: Dockerfile
+    container_name: pdm-ingestion
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      PUBLISH_RATE_HZ: 10
+      DATA_FILE: /app/data/training_data.pkl
+    volumes:
+      - ./training_data.pkl:/app/data/training_data.pkl:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - pdm-network
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # PIPELINE STAGE 2: CLEANSING / VALIDATION
+  # ---------------------------------------------------------------------------
+  cleansing-svc:
+    build:
+      context: ./pipeline/cleansing
+      dockerfile: Dockerfile
+    container_name: pdm-cleansing
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      ZSCORE_THRESHOLD: 3.0
+      STATS_WINDOW_SIZE: 200
+    depends_on:
+      redis:
+        condition: service_healthy
+      ingestion-svc:
+        condition: service_started
+    networks:
+      - pdm-network
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # PIPELINE STAGE 3: CONTEXTUALIZATION (Digital Twin)
+  # ---------------------------------------------------------------------------
+  context-svc:
+    build:
+      context: ./pipeline/contextualization
+      dockerfile: Dockerfile
+    container_name: pdm-context
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      STATION_CONFIG_PATH: /app/station_config.json
+      BUFFER_MAX_SIZE: 10000
+    volumes:
+      - ./pipeline/station_config.json:/app/station_config.json:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+      cleansing-svc:
+        condition: service_started
+    networks:
+      - pdm-network
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # PIPELINE STAGE 4: PERSISTENCE (TimescaleDB Writer)
+  # ---------------------------------------------------------------------------
+  persistence-svc:
+    build:
+      context: ./pipeline/persistence
+      dockerfile: Dockerfile
+    container_name: pdm-persistence
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      DB_HOST: timescaledb
+      DB_PORT: 5432
+      DB_NAME: ${DT_POSTGRES_DB:-pdm_timeseries}
+      DB_USER: ${DT_POSTGRES_USER:-postgres}
+      DB_PASSWORD: ${DT_POSTGRES_PASSWORD:-password}
+      BATCH_SIZE: 100
+    depends_on:
+      redis:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+      context-svc:
+        condition: service_started
+    networks:
+      - pdm-network
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # PIPELINE STAGE 5: INFERENCE (XGBoost RUL)
+  # ---------------------------------------------------------------------------
+  inference-svc:
+    build:
+      context: ./pipeline/inference
+      dockerfile: Dockerfile
+    container_name: pdm-inference
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      MODEL_PATH: /app/models/gaia_model.pkl
+      RUL_MODEL_PATH: /app/models/rul_model.json
+    volumes:
+      - ./gaia_model.pkl:/app/models/gaia_model.pkl:ro
+      - ./rul_model.json:/app/models/rul_model.json:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+      cleansing-svc:
+        condition: service_started
+    networks:
+      - pdm-network
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # STAGE 6: ORCHESTRATION — API Server
+  # ---------------------------------------------------------------------------
   api:
     build:
       context: .
@@ -64,20 +213,25 @@ services:
     ports:
       - "8000:8000"
     environment:
-      # Database connection
-      DATABASE_URL: postgresql://${DT_POSTGRES_USER:-postgres}:${DT_POSTGRES_PASSWORD:-password}@timescaledb:5432/${DT_POSTGRES_DB:-pdm_timeseries}
+      # Database connection (Pydantic DB_ prefix)
       DB_HOST: timescaledb
+      DB_PORT: 5432
       DB_NAME: ${DT_POSTGRES_DB:-pdm_timeseries}
       DB_USER: ${DT_POSTGRES_USER:-postgres}
       DB_PASSWORD: ${DT_POSTGRES_PASSWORD:-password}
-      # Redis connection
+      DB_SSL_MODE: disable
+      # Redis connection (Pydantic REDIS_ prefix)
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      # Security (Pydantic SECURITY_ prefix)
+      SECURITY_JWT_SECRET: ${SECURITY_JWT_SECRET:-dev-secret-key-change-in-production-32chars}
     depends_on:
       timescaledb:
         condition: service_healthy
       redis:
         condition: service_healthy
+      inference-svc:
+        condition: service_started
     networks:
       - pdm-network
     healthcheck:
@@ -87,62 +241,26 @@ services:
       retries: 5
       start_period: 30s
 
-  # 5. Frontend Service (React + Python Server)
+  # ---------------------------------------------------------------------------
+  # STAGE 6: ORCHESTRATION — Frontend
+  # ---------------------------------------------------------------------------
   frontend:
     build:
-      context: .
-      dockerfile: frontend/Dockerfile
+      context: ./frontend
+      dockerfile: Dockerfile
     container_name: pdm-frontend
     ports:
       - "8080:8080"
+
     networks:
       - pdm-network
     depends_on:
       api:
         condition: service_started
 
-  # 6. Stream Consumer (Worker)
-  stream-consumer:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: pdm-stream-consumer
-    command: python -u realtime_anomaly_detector.py
-    environment:
-      DT_POSTGRES_DB: pdm_timeseries
-      DT_POSTGRES_USER: ${DT_POSTGRES_USER:-postgres}
-      DT_POSTGRES_PASSWORD: ${DT_POSTGRES_PASSWORD:-password}
-      DB_HOST: timescaledb
-      REDIS_HOST: redis
-      MONGO_HOST: mongodb
-      MONGO_PASSWORD: ${MONGO_PASSWORD:-password}
-    depends_on:
-      timescaledb:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      mongodb:
-        condition: service_healthy
-    networks:
-      - pdm-network
-
-  # 7. Stream Publisher (Data Generator)
-  stream-publisher:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: pdm-stream-publisher
-    command: python -u complex_stream_publisher.py
-    environment:
-      REDIS_HOST: redis
-    volumes:
-      - ./data:/app/data
-    depends_on:
-      redis:
-        condition: service_healthy
-    networks:
-      - pdm-network
-
+# =============================================================================
+# NETWORKS & VOLUMES
+# =============================================================================
 networks:
   pdm-network:
     driver: bridge
