@@ -1,0 +1,141 @@
+# PDM Pilot — CI: unit tests on PR, full integration on merge to main
+name: CI
+
+on:
+  pull_request:
+    branches: [main, master]
+  push:
+    branches: [main, master]
+
+jobs:
+  unit-tests:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: timescale/timescaledb:latest-pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: gaia_predictive_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7.2-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run unit tests
+        env:
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_NAME: gaia_predictive_test
+          DB_USER: postgres
+          DB_PASSWORD: postgres
+          REDIS_HOST: localhost
+          REDIS_PORT: 6379
+          SECURITY_JWT_SECRET: test-secret-do-not-use-in-production-min-32-chars
+        run: |
+          pytest -m "not integration" --ignore=notebooks -v
+
+  integration-tests:
+    name: Integration tests
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    services:
+      postgres:
+        image: timescale/timescaledb:latest-pg15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: pdm_timeseries
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+      mosquitto:
+        image: eclipse-mosquitto:2.0
+        ports:
+          - 1883:1883
+        options: >-
+          --health-cmd "mosquitto_pub -h localhost -t test -m ping -q 1 || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Schema and migrations
+        env:
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_NAME: pdm_timeseries
+          DB_USER: postgres
+          DB_PASSWORD: password
+          DATABASE_URL: postgresql://postgres:password@localhost:5432/pdm_timeseries
+          REDIS_HOST: localhost
+          REDIS_PORT: 6379
+          MQTT_BROKER_HOST: localhost
+          SECURITY_JWT_SECRET: test-secret-do-not-use-in-production-min-32-chars
+        run: |
+          python setup_schema.py 2>/dev/null || true
+          python scripts/migrate_enterprise_features.py 2>/dev/null || true
+          alembic upgrade head
+
+      - name: Run integration tests
+        env:
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_NAME: pdm_timeseries
+          DB_USER: postgres
+          DB_PASSWORD: password
+          REDIS_HOST: localhost
+          REDIS_PORT: 6379
+          MQTT_BROKER_HOST: localhost
+          SECURITY_JWT_SECRET: test-secret-do-not-use-in-production-min-32-chars
+        run: |
+          pytest -m integration --ignore=notebooks -v

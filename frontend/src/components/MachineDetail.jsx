@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { IndustrialTile } from './IndustrialTile';
 import { Brain, Gauge, Thermometer, Activity, ArrowLeft } from 'lucide-react';
 import {
@@ -16,6 +16,10 @@ import MaintenanceRecommendationCard from './MaintenanceRecommendationCard';
 import DegradationTrendChart from './DegradationTrendChart';
 import BearingFaultTrendsChart from './BearingFaultTrendsChart';
 import LineContextWidget from './LineContextWidget';
+import { RULTimeSeriesChart } from './RULTimeSeriesChart';
+import { RobotJointSVG } from './RobotJointSVG';
+import ExplanationCard from './ExplanationCard';
+import { PrescriptiveRecCard } from './PrescriptiveRecCard';
 // Enterprise CMMS Components
 import ReliabilityMetricsCard from './ReliabilityMetricsCard';
 import ActiveAlarmFeed from './ActiveAlarmFeed';
@@ -41,10 +45,45 @@ function MachineDetail({ machine, messages, onBack }) {
     // 2. Historical Data State
     const [history, setHistory] = useState([]);
     const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+    const [latestInference, setLatestInference] = useState(null);
 
     // Scheduling State
     const [isScheduling, setIsScheduling] = useState(false);
     const [showSuccess, setShowSuccess] = useState(false);
+    const [workOrderPrefill, setWorkOrderPrefill] = useState(null);
+    const [selectedJointIndex, setSelectedJointIndex] = useState(null);
+    const trendSectionRef = useRef(null);
+
+    const scrollToTrends = () => {
+        const el = trendSectionRef.current || document.getElementById('compare-trends-target') || document.getElementById('trend_degradation');
+        if (!el) return;
+
+        const scrollContainer = document.querySelector('[data-scroll-container="main-content"]');
+        if (scrollContainer) {
+            const containerRect = scrollContainer.getBoundingClientRect();
+            const elRect = el.getBoundingClientRect();
+            const scrollTop = scrollContainer.scrollTop + (elRect.top - containerRect.top) - 24;
+            const targetTop = Math.max(0, scrollTop);
+            scrollContainer.scrollTo({ top: targetTop, behavior: 'smooth' });
+            return;
+        }
+
+        let parent = el.parentElement;
+        while (parent && parent !== document.body) {
+            const style = window.getComputedStyle(parent);
+            const overflowY = style.overflowY;
+            if ((overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'overlay') && parent.scrollHeight > parent.clientHeight) {
+                const containerRect = parent.getBoundingClientRect();
+                const elRect = el.getBoundingClientRect();
+                const targetTop = parent.scrollTop + (elRect.top - containerRect.top) - 24;
+                parent.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' });
+                return;
+            }
+            parent = parent.parentElement;
+        }
+
+        el.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'nearest' });
+    };
 
     const handleConfirmSchedule = (data) => {
         console.log("Scheduled from Detail:", data);
@@ -76,6 +115,21 @@ function MachineDetail({ machine, messages, onBack }) {
         }
     }, [machine.machine_id]);
 
+    // Fetch latest inference for confidence band and in_training_distribution
+    useEffect(() => {
+        const fetchInference = async () => {
+            if (!machine.machine_id) return;
+            try {
+                const res = await fetch(`http://localhost:8000/api/inference/latest/${machine.machine_id}`);
+                const data = await res.json();
+                setLatestInference(data);
+            } catch (err) {
+                console.error('Failed to fetch inference:', err);
+            }
+        };
+        fetchInference();
+    }, [machine.machine_id]);
+
     // Status Helpers
     const isCritical = machine.failure_probability > 0.8;
     const isWarning = machine.failure_probability > 0.5;
@@ -95,29 +149,37 @@ function MachineDetail({ machine, messages, onBack }) {
         rul_card: { x: 342, y: 410, w: 664, h: 600 },
         maintenance_rec: { x: 1026, y: 410, w: 322, h: 600 },
 
-        // Row 3: Trend Charts (Full Width)
-        trend_degradation: { x: 0, y: 1030, w: 1350, h: 500 },
-        trend_faults: { x: 0, y: 1550, w: 1350, h: 500 },
+        // Row 3: RUL Time Series, Robot Joints, Prescriptive Rec
+        rul_timeseries: { x: 0, y: 1030, w: 664, h: 400 },
+        robot_joints: { x: 684, y: 1030, w: 322, h: 400 },
+        prescriptive_rec: { x: 1026, y: 1030, w: 322, h: 400 },
 
-        // Row 4: Diagnostic Panels (Split)
-        panel_faults: { x: 0, y: 2070, w: 664, h: 600 },
-        panel_features: { x: 684, y: 2070, w: 664, h: 600 },
+        // Row 3b: Why This Score (explanation card below RUL time-series)
+        explanation_card: { x: 0, y: 1430, w: 664, h: 240 },
 
-        // Row 5: Log
-        feature_log: { x: 0, y: 2690, w: 1350, h: 500 },
+        // Row 4: Trend Charts (Full Width)
+        trend_degradation: { x: 0, y: 1690, w: 1350, h: 500 },
+        trend_faults: { x: 0, y: 2210, w: 1350, h: 500 },
 
-        // Row 6: Enterprise 1
-        cmms_metrics: { x: 0, y: 3210, w: 664, h: 500 },
-        cmms_rul: { x: 684, y: 3210, w: 664, h: 500 },
+        // Row 5: Diagnostic Panels (Split)
+        panel_faults: { x: 0, y: 2730, w: 664, h: 600 },
+        panel_features: { x: 684, y: 2730, w: 664, h: 600 },
 
-        // Row 7: Enterprise 2
-        cmms_alarms: { x: 0, y: 3730, w: 664, h: 600 },
-        cmms_orders: { x: 684, y: 3730, w: 664, h: 600 }
+        // Row 6: Log
+        feature_log: { x: 0, y: 3350, w: 1350, h: 500 },
+
+        // Row 7: Enterprise 1
+        cmms_metrics: { x: 0, y: 3870, w: 664, h: 500 },
+        cmms_rul: { x: 684, y: 3870, w: 664, h: 500 },
+
+        // Row 8: Enterprise 2
+        cmms_alarms: { x: 0, y: 4390, w: 664, h: 600 },
+        cmms_orders: { x: 684, y: 4390, w: 664, h: 600 }
     };
 
     const [layoutPositions, setLayoutPositions] = useState(() => {
         try {
-            const saved = localStorage.getItem('machine_detail_positions_v6'); // Incremented key for update
+            const saved = localStorage.getItem('machine_detail_positions_v7');
             const parsed = saved ? JSON.parse(saved) : null;
             if (parsed && typeof parsed === 'object') {
                 return { ...defaultPositions, ...parsed };
@@ -134,7 +196,7 @@ function MachineDetail({ machine, messages, onBack }) {
             [id]: { ...layoutPositions[id], ...updates }
         };
         setLayoutPositions(newPositions);
-        localStorage.setItem('machine_detail_positions_v6', JSON.stringify(newPositions));
+        localStorage.setItem('machine_detail_positions_v7', JSON.stringify(newPositions));
     };
 
     const widgetsContent = useMemo(() => ({
@@ -202,17 +264,30 @@ function MachineDetail({ machine, messages, onBack }) {
         },
         line_context: {
             id: 'line_context',
-            content: <LineContextWidget machineId={machine.machine_id} />
+            content: (
+                <LineContextWidget
+                    machineId={machine.machine_id}
+                    onCompareTrends={scrollToTrends}
+                />
+            )
         },
         rul_card: {
             id: 'rul_card',
             content: (
                 <Box sx={{ height: '100%' }}>
                     <RULCard
-                        rul={machine.rul_days}
-                        timeToFailure={machine.rul_days * 24}
-                        degradationScore={history.length > 0 ? history[history.length - 1].degradation_score : 0}
+                        rul={latestInference?.rul_days ?? machine.rul_days}
+                        maxRul={90}
+                        failureProbability={machine.failure_probability ?? 0}
+                        degradationScore={history.length > 0 ? (history[history.length - 1].degradation_score ?? history[history.length - 1].degradation_score_smoothed) : 0}
                         onSchedule={() => setIsScheduling(true)}
+                        rulLower80={latestInference?.rul_lower_80}
+                        rulUpper80={latestInference?.rul_upper_80}
+                        confidence={latestInference?.confidence}
+                        inTrainingDistribution={latestInference?.in_training_distribution !== false}
+                        explanations={(latest?.explanations && latest.explanations.length > 0) ? latest.explanations : (latestInference?.explanations ?? [])}
+                        healthScore={latest?.health_score ?? latestInference?.health_score ?? (machine?.health_score != null ? machine.health_score : (1 - (machine?.failure_probability ?? 0)) * 100)}
+                        machineName={machine.machine_id}
                     />
                 </Box>
             )
@@ -226,9 +301,67 @@ function MachineDetail({ machine, messages, onBack }) {
                 />
             )
         },
+        rul_timeseries: {
+            id: 'rul_timeseries',
+            content: <RULTimeSeriesChart data={history} syncId="machineSync" />
+        },
+        explanation_card: {
+            id: 'explanation_card',
+            content: (() => {
+                const explanations = (latest?.explanations && latest.explanations.length > 0)
+                    ? latest.explanations
+                    : (latestInference?.explanations ?? []);
+                const healthScore = latest?.health_score ?? latestInference?.health_score ?? (machine?.health_score != null ? machine.health_score : (1 - (machine?.failure_probability ?? 0)) * 100);
+                return (
+                    <ExplanationCard
+                        explanations={explanations}
+                        healthScore={healthScore}
+                        machineName={machine.machine_id}
+                    />
+                );
+            })()
+        },
+        robot_joints: {
+            id: 'robot_joints',
+            content: (() => {
+                const isRobot = (machine.equipment_type || machine.type || '').toLowerCase().includes('robot');
+                const healthScore = 1 - (machine.failure_probability ?? 0);
+                return isRobot ? (
+                    <RobotJointSVG
+                        healthScore={healthScore}
+                        selectedJointIndex={selectedJointIndex}
+                        onSelectJoint={setSelectedJointIndex}
+                    />
+                ) : (
+                    <Card variant="outlined" sx={{ height: '100%', borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', p: 2 }}>
+                        <Typography variant="caption" color="text.secondary">Robot joint view for robot equipment only</Typography>
+                    </Card>
+                );
+            })()
+        },
+        prescriptive_rec: {
+            id: 'prescriptive_rec',
+            content: (
+                <PrescriptiveRecCard
+                    machineId={machine.machine_id}
+                    onCreateWorkOrder={(rec) => {
+                        setWorkOrderPrefill({
+                            initialTitle: rec.action,
+                            initialPriority: (rec.priority || '').toLowerCase(),
+                            initialParts: rec.parts || []
+                        });
+                        setIsScheduling(true);
+                    }}
+                />
+            )
+        },
         trend_degradation: {
             id: 'trend_degradation',
-            content: <DegradationTrendChart data={history} syncId="machineSync" />
+            content: (
+                <Box ref={trendSectionRef} id="compare-trends-target" sx={{ height: '100%' }}>
+                    <DegradationTrendChart data={history} syncId="machineSync" />
+                </Box>
+            )
         },
         trend_faults: {
             id: 'trend_faults',
@@ -321,7 +454,7 @@ function MachineDetail({ machine, messages, onBack }) {
         cmms_alarms: { id: 'cmms_alarms', content: <ActiveAlarmFeed machineId={machine.machine_id} /> },
         cmms_orders: { id: 'cmms_orders', content: <WorkOrderPanel machine={machine} /> },
 
-    }), [machine, history, machineMessages, isCritical, isWarning]);
+    }), [machine, history, machineMessages, isCritical, isWarning, latestInference, selectedJointIndex]);
 
     // Merge content and positions
     const gridItems = useMemo(() => {
@@ -340,70 +473,80 @@ function MachineDetail({ machine, messages, onBack }) {
     }, [layoutPositions, widgetsContent]);
 
     return (
-        <Box sx={{ flexGrow: 1 }}>
-            <DashboardGrid
-                items={gridItems}
-                onUpdate={handleUpdate}
-            >
-                {/* Static Header & Navigation */}
-                <Box sx={{ p: 0, pt: 2, px: 1, pointerEvents: 'none', maxWidth: '100%' }}>
-                    <Box sx={{ pointerEvents: 'auto' }}>
-                        {onBack && (
-                            <Button
-                                startIcon={<ArrowLeft size={16} />}
-                                onClick={onBack}
-                                sx={{ mb: 2, color: 'text.secondary' }}
-                            >
-                                Back to Overview
-                            </Button>
-                        )}
+        <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+            {/* Header outside grid so it is never covered by absolutely positioned widgets */}
+            <Box sx={{ flexShrink: 0, p: 0, pt: 2, px: 1, maxWidth: '100%' }}>
+                {onBack && (
+                    <Button
+                        startIcon={<ArrowLeft size={16} />}
+                        onClick={onBack}
+                        sx={{ mb: 2, color: 'text.secondary' }}
+                    >
+                        Back to Overview
+                    </Button>
+                )}
 
-                        <Box sx={{ mb: 4, pb: 2, borderBottom: 1, borderColor: 'divider' }}>
-                            <Breadcrumbs separator={<NavigateNext fontSize="small" />} sx={{ mb: 2 }}>
-                                <Link underline="hover" color="inherit" href="#">Plant</Link>
-                                <Link underline="hover" color="inherit" href="#">{machine.line_name || 'Unassigned Line'}</Link>
-                                <Typography color="text.primary" fontWeight="medium">{machine.machine_id}</Typography>
-                            </Breadcrumbs>
+                <Box sx={{ mb: 4, pb: 2, borderBottom: 1, borderColor: 'divider' }}>
+                    <Breadcrumbs separator={<NavigateNext fontSize="small" />} sx={{ mb: 2 }}>
+                        <Link underline="hover" color="inherit" href="#">Plant</Link>
+                        <Link underline="hover" color="inherit" href="#">{machine.line_name || 'Unassigned Line'}</Link>
+                        <Typography color="text.primary" fontWeight="medium">{machine.machine_id}</Typography>
+                    </Breadcrumbs>
 
-                            <Grid container alignItems="center" justifyContent="space-between" spacing={2}>
-                                <Grid item>
-                                    <Stack direction="row" spacing={2} alignItems="center">
-                                        <Box>
-                                            <Typography variant="h4" fontWeight="bold">{machine.machine_id}</Typography>
-                                            <Typography variant="body2" color="text.secondary">
-                                                {machine.model_number || 'Unknown Model'} • Installed {machine.install_date || 'N/A'}
-                                            </Typography>
-                                        </Box>
-                                        <Chip
-                                            label={machine.operational_status || 'OFFLINE'}
-                                            color={machine.operational_status === 'RUNNING' ? 'success' : 'default'}
-                                            variant="outlined"
-                                            sx={{ fontWeight: 'bold' }}
-                                        />
-                                    </Stack>
-                                </Grid>
+                    <Grid container alignItems="center" justifyContent="space-between" spacing={2}>
+                        <Grid item>
+                            <Stack direction="row" spacing={2} alignItems="center">
+                                <Box>
+                                    <Typography variant="h4" fontWeight="bold">{machine.machine_id}</Typography>
+                                    <Typography variant="body2" color="text.secondary">
+                                        {machine.model_number || 'Unknown Model'} • Installed {machine.install_date || 'N/A'}
+                                    </Typography>
+                                </Box>
+                                <Chip
+                                    label={machine.operational_status || 'OFFLINE'}
+                                    color={machine.operational_status === 'RUNNING' ? 'success' : 'default'}
+                                    variant="outlined"
+                                    sx={{ fontWeight: 'bold' }}
+                                />
+                            </Stack>
+                        </Grid>
 
-                                <Grid item>
-                                    <Chip
-                                        icon={<Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: isCritical ? 'error.main' : isWarning ? 'warning.main' : 'success.main', ml: 1, mr: -0.5, animation: 'pulse 2s infinite' }} />}
-                                        label={isCritical ? 'CRITICAL FAILURE' : isWarning ? 'WARNING' : 'HEALTHY'}
-                                        color={isCritical ? 'error' : isWarning ? 'warning' : 'success'}
-                                        sx={{ px: 1, py: 2.5, fontWeight: 'bold', fontSize: '0.875rem' }}
-                                    />
-                                </Grid>
-                            </Grid>
-                        </Box>
-                    </Box>
+                        <Grid item>
+                            <Stack direction="row" spacing={2} alignItems="center">
+                                <Button
+                                    type="button"
+                                    variant="outlined"
+                                    size="small"
+                                    startIcon={<Activity size={16} />}
+                                    onClick={scrollToTrends}
+                                    sx={{ flexShrink: 0 }}
+                                >
+                                    Compare trends
+                                </Button>
+                                <Chip
+                                    icon={<Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: isCritical ? 'error.main' : isWarning ? 'warning.main' : 'success.main', ml: 1, mr: -0.5, animation: 'pulse 2s infinite' }} />}
+                                    label={isCritical ? 'CRITICAL FAILURE' : isWarning ? 'WARNING' : 'HEALTHY'}
+                                    color={isCritical ? 'error' : isWarning ? 'warning' : 'success'}
+                                    sx={{ px: 1, py: 2.5, fontWeight: 'bold', fontSize: '0.875rem' }}
+                                />
+                            </Stack>
+                        </Grid>
+                    </Grid>
                 </Box>
-            </DashboardGrid>
+            </Box>
+
+            <DashboardGrid items={gridItems} onUpdate={handleUpdate} />
 
 
             {/* Maintenance Modal */}
             <MaintenanceModal
                 open={isScheduling}
                 machines={[machine]}
-                onClose={() => setIsScheduling(false)}
+                onClose={() => { setIsScheduling(false); setWorkOrderPrefill(null); }}
                 onConfirm={handleConfirmSchedule}
+                initialTitle={workOrderPrefill?.initialTitle}
+                initialPriority={workOrderPrefill?.initialPriority}
+                initialParts={workOrderPrefill?.initialParts}
             />
 
             {/* Success Toast */}

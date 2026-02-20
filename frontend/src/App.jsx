@@ -2,21 +2,39 @@ import React, { useEffect, useState } from 'react';
 import { ThemeProvider, CssBaseline, Box, CircularProgress, Typography } from '@mui/material';
 import theme from './theme';
 import useWebSocket from './hooks/useWebSocket';
+import useCurrentUser from './hooks/useCurrentUser';
 import Sidebar from './components/Sidebar';
 import PlantOverview from './components/PlantOverview';
 import MachineDetail from './components/MachineDetail';
+import TechnicianHome from './components/TechnicianHome';
+import ReliabilityDashboard from './components/ReliabilityDashboard';
 import AnomalyDiscoveryPage from './pages/AnomalyDiscoveryPage';
 import SetupGuidePage from './pages/SetupGuidePage';
 import PipelineOps from './components/PipelineOps';
+import LabelingFeed from './components/LabelingFeed';
 import LoginPage from './components/LoginPage';
 import LoadingScreen from './components/LoadingScreen';
+import OnboardingWizard from './components/OnboardingWizard';
 import { Factory } from 'lucide-react';
 import './index.css';
 
-const API_BASE = 'http://localhost:8000';
-const WS_URL = 'ws://localhost:8000/ws/stream';
-
+// Use relative URLs in dev so Vite proxy forwards to backend (avoids CORS; one place to debug "cannot connect")
+const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_BASE || 'http://localhost:8000');
 function App() {
+  const user = useCurrentUser();
+  // Token in state so WebSocket URL updates after login (backend requires ?token= for stream data)
+  const [wsToken, setWsToken] = useState(() => typeof localStorage !== 'undefined' && (localStorage.getItem('access_token') || localStorage.getItem('token')));
+  const wsBase = import.meta.env.DEV
+    ? `${typeof window !== 'undefined' && window.location ? (window.location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + window.location.host : 'ws://localhost:5173'}/ws/stream`
+    : (import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws/stream');
+  const WS_URL = wsToken ? `${wsBase}?token=${encodeURIComponent(wsToken)}` : wsBase;
+
+  const getAuthHeaders = () => {
+    const token = localStorage.getItem('access_token') || localStorage.getItem('token');
+    if (token) return { Authorization: `Bearer ${token}` };
+    return {};
+  };
+
   const { messages, latestMessage, isConnected } = useWebSocket(WS_URL);
   const [machines, setMachines] = useState([]);
   const [selectedMachineId, setSelectedMachineId] = useState(null);
@@ -32,6 +50,7 @@ function App() {
   const handleLogin = () => {
     setIsAuthenticated(true);
     setIsLoading(true);
+    setWsToken(localStorage.getItem('access_token') || localStorage.getItem('token'));
   };
 
   const handleLoadingComplete = () => {
@@ -43,9 +62,9 @@ function App() {
     setView('overview');
   };
 
-  // Fetch initial machine list from REST API
+  // Fetch initial machine list from REST API (Bearer token for RBAC scoping)
   useEffect(() => {
-    fetch(`${API_BASE}/api/machines`)
+    fetch(`${API_BASE}/api/machines`, { headers: getAuthHeaders() })
       .then((res) => res.json())
       .then((data) => {
         if (data.data) {
@@ -136,6 +155,7 @@ function App() {
         <Box sx={{ display: 'flex', minHeight: '100vh', bgcolor: 'background.default' }}>
           {/* Sidebar Navigation */}
           <Sidebar
+            user={user}
             machines={machines}
             selectedMachineId={selectedMachineId}
             view={view}
@@ -153,12 +173,15 @@ function App() {
             display: 'flex',
             flexDirection: 'column'
           }}>
-            <Box sx={{
-              p: 0,
-              flexGrow: 1,
-              overflow: 'auto', // Allow scrolling
-              transition: 'padding 0.3s ease'
-            }}>
+            <Box
+              data-scroll-container="main-content"
+              sx={{
+                p: 0,
+                flexGrow: 1,
+                overflow: 'auto', // Allow scrolling
+                transition: 'padding 0.3s ease'
+              }}
+            >
               {/* Top Bar / Status */}
               <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 3, alignItems: 'center', gap: 2 }}>
                 {/* Layout Toggle - Temporary Location */}
@@ -216,25 +239,51 @@ function App() {
                 </Box>
               </Box>
 
-              {/* View Router */}
+              {/* View Router (role-aware) */}
               {view === 'pipeline-ops' ? (
                 <PipelineOps onGoLive={handleGoLive} />
               ) : view === 'setup-guide' ? (
                 <SetupGuidePage />
-              ) : view === 'overview' ? (
-                <PlantOverview
-                  machines={machines}
-                  messages={messages}
-                  onSelectMachine={handleSelectMachine}
+              ) : view === 'onboard' ? (
+                <OnboardingWizard
+                  onComplete={() => {
+                    setView('overview');
+                    fetch(`${API_BASE}/api/machines`, { headers: getAuthHeaders() }).then((res) => res.json()).then((data) => data.data && setMachines(data.data)).catch(() => {});
+                  }}
+                  onCancel={() => setView('overview')}
                 />
+              ) : view === 'overview' ? (
+                (user?.role && String(user.role).toLowerCase() === 'technician') ? (
+                  <TechnicianHome
+                    machines={machines}
+                    assignedMachineIds={user.assignedMachineIds}
+                    onSelectMachine={handleSelectMachine}
+                  />
+                ) : (user?.role && String(user.role).toLowerCase() === 'reliability_engineer') ? (
+                  <ReliabilityDashboard machines={machines} user={user} />
+                ) : (
+                  <PlantOverview
+                    user={user}
+                    machines={machines}
+                    messages={messages}
+                    onSelectMachine={handleSelectMachine}
+                    onStartOnboarding={() => setView('onboard')}
+                  />
+                )
               ) : view === 'anomaly-discovery' ? (
                 <AnomalyDiscoveryPage />
+              ) : view === 'labeling-feed' ? (
+                <LabelingFeed />
               ) : selectedMachine ? (
-                <MachineDetail
-                  machine={selectedMachine}
-                  messages={messages}
-                  onBack={handleBackToOverview}
-                />
+                (user?.role && String(user.role).toLowerCase() === 'reliability_engineer') ? (
+                  <ReliabilityDashboard machines={machines} user={user} />
+                ) : (
+                  <MachineDetail
+                    machine={selectedMachine}
+                    messages={messages}
+                    onBack={handleBackToOverview}
+                  />
+                )
               ) : (
                 <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '60vh', color: 'text.secondary' }}>
                   <Factory style={{ width: 64, height: 64, marginBottom: 16 }} />

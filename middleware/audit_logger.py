@@ -3,28 +3,33 @@
 Audit Logger Middleware for FastAPI
 ====================================
 Captures security-relevant information for all API requests.
+Writes to file and to append-only audit_log table (who, what, when, IP, before/after).
 
 Logged fields:
 - Timestamp (UTC ISO format)
 - User ID (from JWT token or 'anonymous')
 - IP Address (client IP, X-Forwarded-For aware)
-- Action (HTTP method + path)
+- Action (HTTP method + path or semantic name)
 - Response Status Code
 - Request Duration (ms)
+- Optional: resource_type, resource_id, before_value, after_value, details
 
 Author: PlantAGI Security Team
 """
 
+import json
 import os
 import time
 import logging
 from datetime import datetime
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 from functools import wraps
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
 from dotenv import load_dotenv
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 load_dotenv()
 
@@ -148,6 +153,110 @@ def get_user_id(request: Request) -> str:
     return 'anonymous'
 
 
+def _serialize_value(val: Any) -> Any:
+    """Serialize before_value/after_value for JSONB; avoid logging raw secrets."""
+    if val is None:
+        return None
+    if isinstance(val, (dict, list)):
+        return val
+    if hasattr(val, "model_dump"):
+        return val.model_dump(mode="json")
+    if hasattr(val, "dict"):
+        return val.dict()
+    return str(val)
+
+
+async def write_audit_entry(
+    session: AsyncSession,
+    *,
+    ip_address: str,
+    action: str,
+    user_id: Optional[str] = None,
+    username: Optional[str] = None,
+    method: Optional[str] = None,
+    path: Optional[str] = None,
+    status_code: Optional[int] = None,
+    resource_type: Optional[str] = None,
+    resource_id: Optional[str] = None,
+    before_value: Any = None,
+    after_value: Any = None,
+    details: Any = None,
+) -> None:
+    """
+    Insert one row into the append-only audit_log table.
+    Call from routes (with session) or use _write_audit_to_db from middleware.
+    """
+    try:
+        before_json = json.dumps(_serialize_value(before_value)) if before_value is not None else None
+        after_json = json.dumps(_serialize_value(after_value)) if after_value is not None else None
+        details_json = json.dumps(_serialize_value(details)) if details is not None else None
+    except (TypeError, ValueError):
+        before_json = after_json = details_json = None
+    await session.execute(
+        text("""
+            INSERT INTO audit_log
+            (user_id, username, ip_address, action, method, path, status_code,
+             resource_type, resource_id, before_value, after_value, details)
+            VALUES
+            (:user_id, :username, :ip_address, :action, :method, :path, :status_code,
+             :resource_type, :resource_id,
+             CAST(:before_value AS jsonb), CAST(:after_value AS jsonb), CAST(:details AS jsonb))
+        """),
+        {
+            "user_id": user_id,
+            "username": username,
+            "ip_address": ip_address,
+            "action": action,
+            "method": method,
+            "path": path,
+            "status_code": status_code,
+            "resource_type": resource_type,
+            "resource_id": resource_id,
+            "before_value": before_json,
+            "after_value": after_json,
+            "details": details_json,
+        },
+    )
+    await session.commit()
+
+
+async def _write_audit_to_db(
+    ip_address: str,
+    action: str,
+    user_id: Optional[str] = None,
+    username: Optional[str] = None,
+    method: Optional[str] = None,
+    path: Optional[str] = None,
+    status_code: Optional[int] = None,
+    resource_type: Optional[str] = None,
+    resource_id: Optional[str] = None,
+    before_value: Any = None,
+    after_value: Any = None,
+    details: Any = None,
+) -> None:
+    """Write audit entry to DB using a new session (e.g. from middleware)."""
+    try:
+        from database import get_db_context
+        async with get_db_context() as session:
+            await write_audit_entry(
+                session,
+                ip_address=ip_address,
+                action=action,
+                user_id=user_id,
+                username=username,
+                method=method,
+                path=path,
+                status_code=status_code,
+                resource_type=resource_type,
+                resource_id=resource_id,
+                before_value=before_value,
+                after_value=after_value,
+                details=details,
+            )
+    except Exception as e:
+        audit_logger.warning("Audit DB write failed: %s", e)
+
+
 class AuditLoggerMiddleware(BaseHTTPMiddleware):
     """
     FastAPI/Starlette middleware for comprehensive audit logging.
@@ -178,10 +287,11 @@ class AuditLoggerMiddleware(BaseHTTPMiddleware):
         is_sensitive = is_sensitive_route(method, path)
         
         # Process request
+        response = None
+        error = None
         try:
             response = await call_next(request)
             status_code = response.status_code
-            error = None
         except Exception as e:
             status_code = 500
             error = str(e)
@@ -190,7 +300,7 @@ class AuditLoggerMiddleware(BaseHTTPMiddleware):
             # Calculate duration
             duration_ms = (time.time() - start_time) * 1000
             
-            # Log sensitive routes always, others based on config
+            # Log sensitive routes always, others based on config (file)
             if is_sensitive or self.log_all_requests:
                 log_entry = (
                     f"timestamp={timestamp} | "
@@ -200,20 +310,30 @@ class AuditLoggerMiddleware(BaseHTTPMiddleware):
                     f"status={status_code} | "
                     f"duration_ms={duration_ms:.2f}"
                 )
-                
                 if is_sensitive:
                     log_entry = f"[SENSITIVE] {log_entry}"
-                
                 if error:
                     log_entry += f" | error={error}"
-                
-                # Log level based on status
                 if status_code >= 500:
                     audit_logger.error(log_entry)
                 elif status_code >= 400:
                     audit_logger.warning(log_entry)
                 else:
                     audit_logger.info(log_entry)
+
+            # Persist to append-only audit_log table (all requests)
+            try:
+                await _write_audit_to_db(
+                    ip_address=ip_address,
+                    action=f"{method} {path}",
+                    user_id=user_id if user_id != "anonymous" else None,
+                    username=None,
+                    method=method,
+                    path=path,
+                    status_code=status_code,
+                )
+            except Exception:
+                pass  # already logged in _write_audit_to_db
         
         return response
 
@@ -257,5 +377,7 @@ __all__ = [
     'audit_log',
     'audit_logger',
     'is_sensitive_route',
-    'SENSITIVE_ROUTES'
+    'SENSITIVE_ROUTES',
+    'write_audit_entry',
+    'get_client_ip',
 ]

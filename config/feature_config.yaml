@@ -1,0 +1,38 @@
+# Feature engineering config for rotating machinery and conveyor systems.
+# Used by RobotFeatureExtractor (pipeline/cleansing/robot_feature_extractor.py).
+
+windows: [50, 200, 500, 2000]
+# Primary window used for rolling_mean, rolling_std, rolling_max, peak_to_peak (first in list)
+rolling_window: 200
+
+baseline_n: 1000
+cycle_baseline_n: 500
+
+# Feature toggles: set to false to exclude from extraction
+features:
+  rolling_mean: true
+  rolling_std: true
+  rolling_max: true
+  rolling_p95: true
+  baseline_zscore: true
+  rate_of_change: true
+  peak_to_peak: true
+  cycle_time_drift: true
+  within_cycle_variance: true
+  speed_normalized_torque: true
+  thermal_torque_ratio: true
+
+# Column names the model expects (order preserved in output)
+output_columns:
+  - torque_mean
+  - torque_std
+  - torque_max
+  - torque_p95
+  - torque_deviation_zscore
+  - speed_normalized_torque
+  - cycle_time_drift_pct
+  - temp_rate_of_change
+  - thermal_torque_ratio
+
+# Null fraction threshold for data quality warning (0.10 = 10%)
+null_warning_threshold: 0.10

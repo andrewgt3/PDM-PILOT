@@ -147,14 +147,16 @@ import redis
 import json
 import time
 
-REDIS_HOST = "localhost"
-REDIS_PORT = 6379
+from config import get_settings
+
 STREAM_KEY = "clean_features"
 
 def publish_to_redis(features: dict, station_id="Bearing_1"):
-    """Publishes features to Redis Stream for Inference Service."""
+    """Publishes features to Redis Stream for Inference Service (Redis from config)."""
     try:
-        r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
+        s = get_settings()
+        pw = s.redis.password.get_secret_value() if s.redis.password else None
+        r = redis.Redis(host=s.redis.host, port=s.redis.port, password=pw, decode_responses=True)
         
         # Add timestamp if not present
         if "timestamp" not in features:

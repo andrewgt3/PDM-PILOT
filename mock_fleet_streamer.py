@@ -1,27 +1,29 @@
 """
 Direct Fleet Streamer (Mock OPC UA Client)
 ===========================================
-Simulates the exact behavior of the OPC UA fleet (Chaos Monkey) 
+Simulates the exact behavior of the OPC UA fleet (Chaos Monkey)
 and writes directly to the database.
+
+With --source azure_pm: uses AzurePMReplayEngine to replay historical
+Azure PM data from TimescaleDB to Redis (and optional MQTT) with time compression.
 
 Workaround for asyncua library compatibility issues.
 """
 
+import argparse
+import os
 import time
 import random
 import pandas as pd
 from sqlalchemy import create_engine
 from datetime import datetime
 
-import os
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# Configuration
+# Configuration (required only for synthetic mode)
 DB_CONNECTION = os.getenv("DATABASE_URL")
-if not DB_CONNECTION:
-    raise ValueError("DATABASE_URL environment variable is required")
 
 # ENHANCED CONFIGURATION: Unique baselines for realism
 ROBOT_CONFIG = {
@@ -56,12 +58,51 @@ ROBOT_IDS = list(ROBOT_CONFIG.keys())
 CYCLE_DURATION_HEALTHY = 45
 CYCLE_DURATION_FAILURE = 30
 
-def main():
+
+def run_azure_pm_replay(
+    speed_multiplier: float,
+    start_from: str | None,
+    redis_host: str | None = None,
+    redis_port: int | None = None,
+    redis_password: str | None = None,
+    redis_url: str | None = None,
+) -> None:
+    """Run Azure PM replay engine instead of synthetic stream."""
+    from demos.azure_pm_replay import AzurePMReplayEngine
+    print("=" * 80)
+    print("AZURE PM REPLAY MODE")
+    print("=" * 80)
+    print(f"Speed: {speed_multiplier}x (1 month = {720 / speed_multiplier:.2f} hours)")
+    if start_from:
+        print(f"Start from: {start_from}")
+    if redis_url:
+        # Avoid printing password
+        from urllib.parse import urlparse
+        u = urlparse(redis_url)
+        target = f"{u.hostname or 'redis'}:{u.port or 6379}"
+    else:
+        target = f"{redis_host or os.getenv('REDIS_HOST', 'localhost')}:{redis_port or os.getenv('REDIS_PORT', '6379')}"
+    print(f"Publishing to Redis sensor_stream at {target}...")
+    engine = AzurePMReplayEngine(
+        speed_multiplier=speed_multiplier,
+        start_from=start_from,
+        redis_url=redis_url,
+        redis_host=redis_host,
+        redis_port=redis_port,
+        redis_password=redis_password,
+        use_mqtt=os.getenv("MQTT_PUBLISH_ENABLED", "").lower() in ("1", "true", "yes"),
+    )
+    engine.run()
+
+
+def main_synthetic():
+    if not DB_CONNECTION:
+        raise ValueError("DATABASE_URL environment variable is required for synthetic mode")
     print("=" * 80)
     print("DIRECT FLEET STREAMER (Simulation Mode)")
     print("=" * 80)
     print("Starting data stream to TimescaleDB...")
-    
+
     engine = create_engine(DB_CONNECTION)
     
     # State
@@ -158,8 +199,72 @@ def main():
 
         time.sleep(0.5) # 2Hz
 
-if __name__ == "__main__":
+
+def main():
+    parser = argparse.ArgumentParser(description="Fleet streamer: synthetic chaos-monkey or Azure PM replay")
+    parser.add_argument(
+        "--source",
+        choices=["synthetic", "azure_pm"],
+        default="synthetic",
+        help="Data source: synthetic (default) or azure_pm replay",
+    )
+    parser.add_argument(
+        "--speed-multiplier",
+        type=float,
+        default=720.0,
+        help="Replay time compression (azure_pm only): 720 = 1 month per hour",
+    )
+    parser.add_argument(
+        "--start-from",
+        type=str,
+        default=None,
+        help='Start replay from date (azure_pm only), e.g. "2023-01-01"',
+    )
+    parser.add_argument(
+        "--redis-host",
+        type=str,
+        default=None,
+        help="Redis host (e.g. test server IP). Uses REDIS_HOST env if not set.",
+    )
+    parser.add_argument(
+        "--redis-port",
+        type=int,
+        default=None,
+        help="Redis port (default 6379). Uses REDIS_PORT env if not set.",
+    )
+    parser.add_argument(
+        "--redis-password",
+        type=str,
+        default=None,
+        help="Redis password if required. Uses REDIS_PASSWORD env if not set.",
+    )
+    parser.add_argument(
+        "--redis-url",
+        type=str,
+        default=None,
+        help="Full Redis URL (e.g. redis://user:pass@host:6379/0). Overrides --redis-host/port/password.",
+    )
+    args = parser.parse_args()
+
+    if args.source == "azure_pm":
+        try:
+            run_azure_pm_replay(
+                args.speed_multiplier,
+                args.start_from,
+                redis_host=args.redis_host,
+                redis_port=args.redis_port,
+                redis_password=args.redis_password,
+                redis_url=args.redis_url,
+            )
+        except KeyboardInterrupt:
+            print("\nStopped.")
+        return
+
     try:
-        main()
+        main_synthetic()
     except KeyboardInterrupt:
         print("\nStopped.")
+
+
+if __name__ == "__main__":
+    main()

@@ -20,9 +20,11 @@ Requires:
 Author: PlantAGI QA Team
 """
 
-import httpx
 import sys
 from datetime import datetime, timezone
+
+import httpx
+import pytest
 
 # Configuration
 API_BASE_URL = "http://localhost:8000"
@@ -202,61 +204,64 @@ def run_validation_tests():
         return 0
 
 
-# Pytest-compatible test functions
-def test_magma_temperature():
+# Pytest-compatible test functions (use conftest client so no live server required)
+TELEMETRY_PATH = "/api/enterprise/telemetry"
+
+
+@pytest.mark.anyio
+async def test_magma_temperature(client, auth_headers):
     """Test that extremely high temperature is rejected."""
-    with httpx.Client(timeout=10.0) as client:
-        response = client.post(TELEMETRY_ENDPOINT, json={
-            "machine_id": "ROBOT_001",
-            "temperature": 10000.0,
-            "vibration_x": 0.5,
-            "rotational_speed": 1800.0
-        })
-        assert response.status_code == 422
+    response = await client.post(TELEMETRY_PATH, json={
+        "machine_id": "ROBOT_001",
+        "temperature": 10000.0,
+        "vibration_x": 0.5,
+        "rotational_speed": 1800.0
+    }, headers=auth_headers)
+    assert response.status_code == 422
 
 
-def test_future_timestamp():
+@pytest.mark.anyio
+async def test_future_timestamp(client, auth_headers):
     """Test that far-future timestamp is rejected."""
-    with httpx.Client(timeout=10.0) as client:
-        response = client.post(TELEMETRY_ENDPOINT, json={
-            "machine_id": "ROBOT_001",
-            "timestamp": "2099-01-01T00:00:00Z",
-            "temperature": 65.0,
-            "vibration_x": 0.5,
-            "rotational_speed": 1800.0
-        })
-        assert response.status_code == 422
+    response = await client.post(TELEMETRY_PATH, json={
+        "machine_id": "ROBOT_001",
+        "timestamp": "2099-01-01T00:00:00Z",
+        "temperature": 65.0,
+        "vibration_x": 0.5,
+        "rotational_speed": 1800.0
+    }, headers=auth_headers)
+    assert response.status_code == 422
 
 
-def test_negative_vibration():
+@pytest.mark.anyio
+async def test_negative_vibration(client, auth_headers):
     """Test that negative vibration is rejected."""
-    with httpx.Client(timeout=10.0) as client:
-        response = client.post(TELEMETRY_ENDPOINT, json={
-            "machine_id": "ROBOT_001",
-            "temperature": 65.0,
-            "vibration_x": -5.0,
-            "rotational_speed": 1800.0
-        })
-        assert response.status_code == 422
+    response = await client.post(TELEMETRY_PATH, json={
+        "machine_id": "ROBOT_001",
+        "temperature": 65.0,
+        "vibration_x": -5.0,
+        "rotational_speed": 1800.0
+    }, headers=auth_headers)
+    assert response.status_code == 422
 
 
-def test_empty_payload():
+@pytest.mark.anyio
+async def test_empty_payload(client, auth_headers):
     """Test that empty payload is rejected."""
-    with httpx.Client(timeout=10.0) as client:
-        response = client.post(TELEMETRY_ENDPOINT, json={})
-        assert response.status_code == 422
+    response = await client.post(TELEMETRY_PATH, json={}, headers=auth_headers)
+    assert response.status_code == 422
 
 
-def test_short_machine_id():
+@pytest.mark.anyio
+async def test_short_machine_id(client, auth_headers):
     """Test that too-short machine_id is rejected."""
-    with httpx.Client(timeout=10.0) as client:
-        response = client.post(TELEMETRY_ENDPOINT, json={
-            "machine_id": "AB",
-            "temperature": 65.0,
-            "vibration_x": 0.5,
-            "rotational_speed": 1800.0
-        })
-        assert response.status_code == 422
+    response = await client.post(TELEMETRY_PATH, json={
+        "machine_id": "AB",
+        "temperature": 65.0,
+        "vibration_x": 0.5,
+        "rotational_speed": 1800.0
+    }, headers=auth_headers)
+    assert response.status_code == 422
 
 
 if __name__ == "__main__":

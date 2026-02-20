@@ -251,6 +251,8 @@ class AuthService:
         username: str,
         role: UserRole = UserRole.VIEWER,
         expires_delta: timedelta | None = None,
+        site_id: str | None = None,
+        assigned_machine_ids: list[str] | None = None,
     ) -> str:
         """Create a JWT access token.
         
@@ -259,17 +261,11 @@ class AuthService:
             username: User's username.
             role: User's authorization role.
             expires_delta: Custom expiration time. Defaults to config value.
+            site_id: Site for plant_manager scoping (optional).
+            assigned_machine_ids: Pre-loaded machine IDs for technician (optional).
         
         Returns:
             Encoded JWT access token string.
-        
-        Example:
-            >>> auth = AuthService()
-            >>> token = auth.create_access_token(
-            ...     user_id="550e8400-e29b-41d4-a716-446655440000",
-            ...     username="john_doe",
-            ...     role=UserRole.OPERATOR,
-            ... )
         """
         if expires_delta is None:
             expires_delta = timedelta(minutes=self._access_expiry_minutes)
@@ -280,6 +276,8 @@ class AuthService:
             role=role,
             token_type=TokenType.ACCESS,
             expires_delta=expires_delta,
+            site_id=site_id,
+            assigned_machine_ids=assigned_machine_ids,
         )
     
     def create_refresh_token(
@@ -288,17 +286,18 @@ class AuthService:
         username: str,
         role: UserRole = UserRole.VIEWER,
         expires_delta: timedelta | None = None,
+        site_id: str | None = None,
+        assigned_machine_ids: list[str] | None = None,
     ) -> str:
         """Create a JWT refresh token.
-        
-        Refresh tokens have longer validity and are used to obtain
-        new access tokens without re-authentication.
         
         Args:
             user_id: Unique user identifier.
             username: User's username.
             role: User's authorization role.
             expires_delta: Custom expiration time. Defaults to config value.
+            site_id: Site for plant_manager scoping (optional).
+            assigned_machine_ids: Pre-loaded machine IDs for technician (optional).
         
         Returns:
             Encoded JWT refresh token string.
@@ -312,6 +311,8 @@ class AuthService:
             role=role,
             token_type=TokenType.REFRESH,
             expires_delta=expires_delta,
+            site_id=site_id,
+            assigned_machine_ids=assigned_machine_ids,
         )
     
     def _create_token(
@@ -321,19 +322,10 @@ class AuthService:
         role: UserRole,
         token_type: TokenType,
         expires_delta: timedelta,
+        site_id: str | None = None,
+        assigned_machine_ids: list[str] | None = None,
     ) -> str:
-        """Internal method to create a JWT with specified claims.
-        
-        Args:
-            user_id: User identifier for 'sub' claim.
-            username: Username for token payload.
-            role: User role for authorization.
-            token_type: ACCESS or REFRESH token type.
-            expires_delta: Token validity duration.
-        
-        Returns:
-            Encoded JWT string.
-        """
+        """Internal method to create a JWT with specified claims."""
         now = datetime.now(timezone.utc)
         expire = now + expires_delta
         jti = str(uuid.uuid4())
@@ -347,6 +339,10 @@ class AuthService:
             "iat": now,
             "jti": jti,
         }
+        if site_id is not None:
+            payload["site_id"] = site_id
+        if assigned_machine_ids is not None:
+            payload["assigned_machine_ids"] = assigned_machine_ids
         
         token = jwt.encode(payload, self._secret_key, algorithm=self._algorithm)
         
@@ -414,6 +410,8 @@ class AuthService:
                 exp=exp,
                 iat=iat,
                 jti=payload.get("jti", str(uuid.uuid4())),
+                site_id=payload.get("site_id"),
+                assigned_machine_ids=payload.get("assigned_machine_ids") or [],
             )
             
             logger.debug(
@@ -521,6 +519,8 @@ def create_access_token(
     user_id: str,
     username: str,
     role: UserRole = UserRole.VIEWER,
+    site_id: str | None = None,
+    assigned_machine_ids: list[str] | None = None,
 ) -> str:
     """Convenience function to create an access token.
     
@@ -528,11 +528,17 @@ def create_access_token(
         user_id: User identifier.
         username: Username.
         role: User role.
+        site_id: Site for plant_manager scoping (optional).
+        assigned_machine_ids: Pre-loaded machine IDs for technician (optional).
     
     Returns:
         JWT access token string.
     """
-    return get_auth_service().create_access_token(user_id, username, role)
+    return get_auth_service().create_access_token(
+        user_id, username, role,
+        site_id=site_id,
+        assigned_machine_ids=assigned_machine_ids,
+    )
 
 
 def verify_token(token: str, expected_type: TokenType | None = None) -> TokenData:

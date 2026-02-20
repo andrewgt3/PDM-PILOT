@@ -1,30 +1,30 @@
 # =============================================================================
 # PDM Pilot — Golden Pipeline Docker Compose
 # =============================================================================
-# 6-Stage Industrial Data Pipeline Architecture
+# Profiles:
+#   (none) — docker-compose up → timescaledb, redis, mosquitto only (infrastructure)
+#   dev    — docker-compose --profile dev up   → infra + pipeline stages + API + frontend
+#   prod   — docker-compose --profile prod up  → infra + API only (production hardening)
 #
-# Infrastructure:
+# Infrastructure (no profile, always available):
 #   - TimescaleDB (time-series database)
 #   - Redis (streams + cache)
-#   - MongoDB (unstructured logs)
+#   - Eclipse Mosquitto (MQTT broker)
 #
-# Pipeline Stages:
-#   1. Ingestion    → polls hardware/simulator, publishes to raw_sensor_data
-#   2. Cleansing    → Z-score outlier detection, publishes to clean_sensor_data
-#   3. Context      → digital twin mapping, publishes to contextualized_data
-#   4. Persistence  → batch writer to TimescaleDB
-#   5. Inference    → XGBoost RUL prediction, publishes to inference_results
-#
-# Orchestration:
-#   6. API + Frontend → subscribes to inference_results for display
+# Pipeline Stages (dev profile):
+#   1. Ingestion    → raw_sensor_data
+#   2. Cleansing    → clean_sensor_data
+#   3. Context      → contextualized_data
+#   4. Persistence  → TimescaleDB
+#   5. Inference    → inference_results
+#   6. API + Frontend
 # =============================================================================
 
 services:
   # ---------------------------------------------------------------------------
-  # INFRASTRUCTURE
+  # INFRASTRUCTURE (no profile — default: infra only)
   # ---------------------------------------------------------------------------
 
-  # 1. PostgreSQL + TimescaleDB (Time-series)
   timescaledb:
     image: timescale/timescaledb:latest-pg16
     container_name: pdm-timescaledb
@@ -44,7 +44,6 @@ services:
       timeout: 5s
       retries: 5
 
-  # 2. Redis (Streams + Cache)
   redis:
     image: redis:7.2-alpine
     container_name: pdm-redis
@@ -61,10 +60,81 @@ services:
       timeout: 5s
       retries: 5
 
-  # 3. MongoDB (Unstructured / Logs)
+  mosquitto:
+    image: eclipse-mosquitto:2.0
+    container_name: pdm-mosquitto
+    ports:
+      - "1883:1883"
+      - "8883:8883"
+      - "9001:9001"
+    networks:
+      - pdm-network
+    volumes:
+      - ./docker/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./docker/mosquitto/certs:/mosquitto/certs:ro
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_logs:/mosquitto/log
+    healthcheck:
+      test: [ "CMD-SHELL", "mosquitto_pub -h localhost -t health/check -m ping -q 1 || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  # ---------------------------------------------------------------------------
+  # PREFECT SERVER (orchestration for scheduled/event-driven flows)
+  # Workers and stream_consumer need PREFECT_API_URL=http://prefect-server:4200/api
+  # ---------------------------------------------------------------------------
+  prefect-server:
+    image: prefecthq/prefect:3-latest
+    container_name: pdm-prefect-server
+    command: prefect server start --host 0.0.0.0
+    ports:
+      - "4200:4200"
+    environment:
+      PREFECT_API_DATABASE_CONNECTION_URL: postgresql+asyncpg://${DT_POSTGRES_USER:-postgres}:${DT_POSTGRES_PASSWORD:-password}@timescaledb:5432/${DT_POSTGRES_DB:-pdm_timeseries}
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    networks:
+      - pdm-network
+
+  # ---------------------------------------------------------------------------
+  # FEDERATED LEARNING SERVER (profile: federated — start with --profile federated)
+  # Clients connect to fl-server:8080 for Flower gRPC.
+  # ---------------------------------------------------------------------------
+  fl-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pdm-fl-server
+    profiles:
+      - federated
+    command: python -m federated.fl_server --num-rounds 10 --port 8080 --min-clients 2
+    ports:
+      - "8080:8080"
+    environment:
+      FL_LOCAL_EPOCHS: ${FL_LOCAL_EPOCHS:-5}
+      FL_DP_ENABLED: ${FL_DP_ENABLED:-false}
+      DB_HOST: timescaledb
+      DB_PORT: 5432
+      DB_NAME: ${DT_POSTGRES_DB:-pdm_timeseries}
+      DB_USER: ${DT_POSTGRES_USER:-postgres}
+      DB_PASSWORD: ${DT_POSTGRES_PASSWORD:-password}
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    networks:
+      - pdm-network
+
+  # ---------------------------------------------------------------------------
+  # MONGODB (dev profile)
+  # ---------------------------------------------------------------------------
   mongodb:
     image: mongo:7.0
     container_name: pdm-mongodb
+    profiles:
+      - dev
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-admin}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-password}
@@ -75,19 +145,22 @@ services:
     volumes:
       - mongodb-data:/data/db
     healthcheck:
-      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      test: ["CMD-SHELL", "mongosh --quiet localhost:27017/test --eval 'db.runCommand({ping:1}).ok' || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 10s
 
   # ---------------------------------------------------------------------------
-  # PIPELINE STAGE 1: INGESTION
+  # PIPELINE STAGE 1: INGESTION (dev profile)
   # ---------------------------------------------------------------------------
   ingestion-svc:
     build:
       context: ./pipeline/ingestion
       dockerfile: Dockerfile
     container_name: pdm-ingestion
+    profiles:
+      - dev
     environment:
       REDIS_HOST: redis
       REDIS_PORT: 6379
@@ -101,15 +174,23 @@ services:
     networks:
       - pdm-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import os,redis; r=redis.Redis(host=os.environ.get('REDIS_HOST','redis'), port=6379); r.ping()\" || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
   # ---------------------------------------------------------------------------
-  # PIPELINE STAGE 2: CLEANSING / VALIDATION
+  # PIPELINE STAGE 2: CLEANSING (dev profile)
   # ---------------------------------------------------------------------------
   cleansing-svc:
     build:
       context: ./pipeline/cleansing
       dockerfile: Dockerfile
     container_name: pdm-cleansing
+    profiles:
+      - dev
     environment:
       REDIS_HOST: redis
       REDIS_PORT: 6379
@@ -119,19 +200,27 @@ services:
       redis:
         condition: service_healthy
       ingestion-svc:
-        condition: service_started
+        condition: service_healthy
     networks:
       - pdm-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import os,redis; r=redis.Redis(host=os.environ.get('REDIS_HOST','redis'), port=6379); r.ping()\" || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
   # ---------------------------------------------------------------------------
-  # PIPELINE STAGE 3: CONTEXTUALIZATION (Digital Twin)
+  # PIPELINE STAGE 3: CONTEXTUALIZATION (dev profile)
   # ---------------------------------------------------------------------------
   context-svc:
     build:
       context: ./pipeline/contextualization
       dockerfile: Dockerfile
     container_name: pdm-context
+    profiles:
+      - dev
     environment:
       REDIS_HOST: redis
       REDIS_PORT: 6379
@@ -143,19 +232,27 @@ services:
       redis:
         condition: service_healthy
       cleansing-svc:
-        condition: service_started
+        condition: service_healthy
     networks:
       - pdm-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import os,redis; r=redis.Redis(host=os.environ.get('REDIS_HOST','redis'), port=6379); r.ping()\" || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
   # ---------------------------------------------------------------------------
-  # PIPELINE STAGE 4: PERSISTENCE (TimescaleDB Writer)
+  # PIPELINE STAGE 4: PERSISTENCE (dev profile)
   # ---------------------------------------------------------------------------
   persistence-svc:
     build:
       context: ./pipeline/persistence
       dockerfile: Dockerfile
     container_name: pdm-persistence
+    profiles:
+      - dev
     environment:
       REDIS_HOST: redis
       REDIS_PORT: 6379
@@ -171,19 +268,27 @@ services:
       timescaledb:
         condition: service_healthy
       context-svc:
-        condition: service_started
+        condition: service_healthy
     networks:
       - pdm-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import os,redis; r=redis.Redis(host=os.environ.get('REDIS_HOST','redis'), port=6379); r.ping()\" && python -c \"import os,psycopg2; c=psycopg2.connect(host=os.environ.get('DB_HOST','timescaledb'), port=5432, dbname=os.environ.get('DB_NAME','pdm_timeseries'), user=os.environ.get('DB_USER','postgres'), password=os.environ.get('DB_PASSWORD','password'), connect_timeout=2); c.close()\" || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 25s
 
   # ---------------------------------------------------------------------------
-  # PIPELINE STAGE 5: INFERENCE (XGBoost RUL)
+  # PIPELINE STAGE 5: INFERENCE (dev profile)
   # ---------------------------------------------------------------------------
   inference-svc:
     build:
       context: ./pipeline/inference
       dockerfile: Dockerfile
     container_name: pdm-inference
+    profiles:
+      - dev
     environment:
       REDIS_HOST: redis
       REDIS_PORT: 6379
@@ -196,42 +301,57 @@ services:
       redis:
         condition: service_healthy
       cleansing-svc:
-        condition: service_started
+        condition: service_healthy
     networks:
       - pdm-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import os,redis; r=redis.Redis(host=os.environ.get('REDIS_HOST','redis'), port=6379); r.ping()\" || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 25s
 
   # ---------------------------------------------------------------------------
-  # STAGE 6: ORCHESTRATION — API Server
+  # API SERVER (dev + prod)
   # ---------------------------------------------------------------------------
   api:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: pdm-api
+    profiles:
+      - dev
+      - prod
     command: uvicorn api_server:app --host 0.0.0.0 --port 8000 --reload
     ports:
       - "8000:8000"
     environment:
-      # Database connection (Pydantic DB_ prefix)
       DB_HOST: timescaledb
       DB_PORT: 5432
       DB_NAME: ${DT_POSTGRES_DB:-pdm_timeseries}
       DB_USER: ${DT_POSTGRES_USER:-postgres}
       DB_PASSWORD: ${DT_POSTGRES_PASSWORD:-password}
       DB_SSL_MODE: disable
-      # Redis connection (Pydantic REDIS_ prefix)
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      # Security (Pydantic SECURITY_ prefix)
+      MQTT_BROKER_HOST: mosquitto
+      MQTT_BROKER_PORT: 1883
+      MQTT_WS_PORT: 9001
+      MQTT_CLIENT_ID: ${MQTT_CLIENT_ID:-pdm-pilot}
+      MQTT_USERNAME: ${MQTT_USERNAME:-}
+      MQTT_PASSWORD: ${MQTT_PASSWORD:-}
+      MQTT_TLS_ENABLED: ${MQTT_TLS_ENABLED:-false}
+      MQTT_PUBLISH_ENABLED: ${MQTT_PUBLISH_ENABLED:-true}
+      MQTT_QOS: ${MQTT_QOS:-1}
       SECURITY_JWT_SECRET: ${SECURITY_JWT_SECRET:-dev-secret-key-change-in-production-32chars}
     depends_on:
       timescaledb:
         condition: service_healthy
       redis:
         condition: service_healthy
-      inference-svc:
-        condition: service_started
+      mosquitto:
+        condition: service_healthy
     networks:
       - pdm-network
     healthcheck:
@@ -242,24 +362,31 @@ services:
       start_period: 30s
 
   # ---------------------------------------------------------------------------
-  # STAGE 6: ORCHESTRATION — Frontend
+  # FRONTEND (dev profile only)
   # ---------------------------------------------------------------------------
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
     container_name: pdm-frontend
+    profiles:
+      - dev
     ports:
       - "8080:8080"
-
     networks:
       - pdm-network
     depends_on:
       api:
-        condition: service_started
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8080 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
 # =============================================================================
-# NETWORKS & VOLUMES
+# NETWORKS & VOLUMES (persistent — survive docker-compose down)
 # =============================================================================
 networks:
   pdm-network:
@@ -269,3 +396,5 @@ volumes:
   timescaledb-data:
   redis-data:
   mongodb-data:
+  mosquitto_data:
+  mosquitto_logs:

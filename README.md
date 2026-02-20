@@ -224,91 +224,120 @@ PDM-PILOT/
 
 ---
 
+## Federated Deployment
+
+When to use **federated** vs **centralized** training:
+
+- **Federated learning (Flower):** Use when data must stay on-site (privacy, compliance, or multi-plant). Each site runs a Flower client that trains on local TimescaleDB data; only model weight updates are sent to a central server. Data never leaves each client process.
+- **Centralized training (default):** Use when all data can be aggregated or for single-tenant deployments. The existing `train_model.py` pipeline (FLAML/XGBoost) runs as today; retraining is triggered by drift CRITICAL or label milestones.
+
+Set `FL_ENABLED=true` and `FL_SERVER_ADDRESS=<host:port>` so that Prefect flows (drift CRITICAL, scheduled retraining) invoke the Flower client instead of the centralized `train_model.py` subprocess.
+
+### How to start the FL server
+
+With Docker (profile `federated`):
+
+```bash
+docker-compose --profile federated up fl-server
+```
+
+Or locally:
+
+```bash
+python -m federated.fl_server --num-rounds 10 --port 8080 --min-clients 2
+```
+
+The server runs FedAvg (Federated Averaging), requires at least 2 clients before aggregating, and logs the aggregated model to MLflow after each round (if MLflow is configured).
+
+### How to register a new client site
+
+At each site (or machine), run the Flower client with that site’s `machine_id` and the central server address. Data is loaded from the local TimescaleDB (labeled feature snapshots for that machine); the same canonical feature schema is used across all clients.
+
+```bash
+python -m federated.fl_client --server-address central-server:8080 --machine-id WB-001
+```
+
+Ensure the site has:
+
+- TimescaleDB (or DB connection) with labeled data for that `machine_id` (from the labeling UI or API).
+- The same canonical feature set (see `federated/constants.py`).
+
+Optional: enable differential privacy with `FL_DP_ENABLED=true`, `FL_DP_CLIPPING_NORM`, and `FL_DP_NOISE_MULTIPLIER` (see `federated/privacy_config.py`).
+
+---
+
 ## 🚀 Quick Start
 
-### Prerequisites
-- Python 3.11+
-- Node.js 18+
-- Docker & Docker Compose
-- PostgreSQL (or use Docker)
+### One-command development setup
 
-### 1. Environment Setup
+From the repository root, run:
 
 ```bash
-# Clone and enter directory
-cd PDM-PILOT
-
-# Copy environment template
-cp .env.example .env
-
-# Edit .env with your settings:
-# - DATABASE_URL=postgresql://user:pass@localhost:5432/pdm_timeseries
-# - SECRET_KEY=your-secret-key
-# - ADMIN_PASSWORD=your-admin-password
+./scripts/setup_dev.sh
 ```
 
-### 2. Start Infrastructure (Docker)
+This script:
+
+- Checks for **Python 3.11+**, **Docker**, **Docker Compose**, and **Node 18+** (prints install hints if missing)
+- Copies `.env.example` → `.env` when `.env` does not exist
+- Creates a venv, installs `requirements.txt`, starts **TimescaleDB** and **Redis** with Docker Compose, waits for the DB to be ready, runs **`alembic upgrade head`**, and installs frontend deps (`cd frontend && npm install`)
+- Prints a success summary with URLs: **API** http://localhost:8000, **Frontend** http://localhost:5173
+
+### Verify connections
+
+After setup, confirm infrastructure and optional hardware:
 
 ```bash
-# Start TimescaleDB + Redis
-docker-compose up -d timescaledb redis
+source .venv/bin/activate   # if not already active
+python scripts/verify_connections.py
 ```
 
-### 3. Backend Setup
+This checks **TimescaleDB**, **Redis**, **ABB RWS** (`ROBOT_IP:ROBOT_PORT/rw/system`), and **Siemens S7** (snap7 to `SIEMENS_PLC_IP`) and prints a pass/fail table. Configure `ROBOT_IP`, `ROBOT_PORT`, and `SIEMENS_PLC_*` in `.env` for virtual or physical hardware (see `.env.example`).
+
+### Run the stack
 
 ```bash
-# Create virtual environment
-python -m venv .venv
+# Activate venv
 source .venv/bin/activate
 
-# Install dependencies
-pip install -r requirements.txt
-
-# Run database migrations
-alembic upgrade head
-
-# Start API server
+# Start API
 uvicorn api_server:app --host 0.0.0.0 --port 8000 --reload
+
+# In another terminal: start frontend (Vite dev server on 5173)
+cd frontend && npm run dev
 ```
 
-### 4. Frontend Setup
+**If the app shows "cannot connect" or the API is unreachable:**
+
+1. **Start the API** — In a terminal from the project root: `uvicorn api_server:app --host 0.0.0.0 --port 8000 --reload`. The frontend (Vite on 5173) proxies `/api` and `/ws` to port 8000.
+2. **Start PostgreSQL and Redis** — Either run `docker compose up -d` (or the services from `./scripts/setup_dev.sh`) so the API can connect to the database and Redis.
+3. **Check .env** — Ensure `.env` exists (copy from `.env.example`) and has `DB_PASSWORD` and `SECURITY_JWT_SECRET` set; otherwise the API may fail on startup.
+
+Optional: start mock streaming with `python stream_publisher.py` and `python stream_consumer.py`.
+
+### Full NASA dataset (training)
+
+To use the full NASA datasets for training:
 
 ```bash
-cd frontend
-npm install
-npm run dev
-```
-
-### 5. Start Data Streaming (Optional)
-
-```bash
-# Terminal 1: Start mock sensor data publisher
-python stream_publisher.py
-
-# Terminal 2: Start stream consumer (processes & stores)
-python stream_consumer.py
-```
-
-### 6. Full NASA Dataset (For Training)
-
-To train on the full NASA datasets instead of the sample:
-
-```bash
-# Download C-MAPSS (turbofan) + IMS (bearings) from NASA Open Data Portal
 python scripts/download_nasa_data.py
-
-# Output: ~/Desktop/archive.zip (or --output /path/to/archive.zip)
-# Then click "Initialize NASA Data" in the Pipeline Operations dashboard
+# Then use "Initialize NASA Data" in the Pipeline Operations dashboard if available
 ```
 
-**Datasets included:**
-| Dataset | Size | Description |
-|---------|------|-------------|
-| [NASA C-MAPSS](https://data.nasa.gov/dataset/cmapss-jet-engine-simulated-data) | ~15 MB | Turbofan engine degradation (FD001–FD004), 100–260 engines each |
-| [NASA IMS Bearings](https://data.nasa.gov/dataset/ims-bearings) | ~50 MB | Bearing run-to-failure from IMS/UCincinnati |
+See [NASA C-MAPSS](https://data.nasa.gov/dataset/cmapss-jet-engine-simulated-data) and [NASA IMS Bearings](https://data.nasa.gov/dataset/ims-bearings) for dataset details.
 
-**Additional datasets** (for bearing fault diagnosis):
-- [CWRU Bearing Data](https://engineering.case.edu/bearingdatacenter/download-data-file) — .mat format; convert to text for refinery
+### Stream historical data (free datasets)
+
+To test the pipeline with **realistic historical data** instead of synthetic:
+
+1. **Azure Predictive Maintenance** (best match): Download the [Microsoft Azure PdM dataset](https://www.kaggle.com/datasets/arnabbiswas1/microsoft-azure-predictive-maintenance/data) (free with Kaggle account), place the 5 `PdM_*.csv` files in `data/azure_pm/`, then run:
+   ```bash
+   python scripts/prepare_historical_stream.py
+   python mock_fleet_streamer.py --source azure_pm --speed-multiplier 720
+   ```
+   This loads telemetry into the DB and replays it to Redis with time compression; the dashboard will show machines and health as the replay runs.
+
+2. **NASA / FEMTO / CWRU**: See [docs/FREE_DATASETS_STREAMING.md](docs/FREE_DATASETS_STREAMING.md) for links and steps for each dataset.
 
 ---
 

@@ -6,6 +6,8 @@ fleet status, health calculations, and maintenance workflows.
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any, Dict, List
 import uuid
 
@@ -16,6 +18,45 @@ from services.base import BaseService
 from logger import get_logger
 
 logger = get_logger(__name__)
+
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+_STATION_CONFIG_PATH = _PROJECT_ROOT / "pipeline" / "station_config.json"
+
+
+def _metadata_for_machine(machine_id: str) -> Dict[str, str]:
+    """Return name, shop, line, type from EQUIPMENT_METADATA or station_config node_mappings."""
+    # Hardcoded first (legacy fleet)
+    if machine_id in EQUIPMENT_METADATA:
+        m = EQUIPMENT_METADATA[machine_id]
+        return {
+            "name": m.get("name", machine_id),
+            "shop": m.get("shop", "Unassigned Shop"),
+            "line": m.get("line", "Unassigned Line"),
+            "type": m.get("type", "Equipment"),
+        }
+    # Azure PM and others: from station_config (ingestor writes asset_name, shop, line, equipment_type)
+    try:
+        if _STATION_CONFIG_PATH.exists():
+            with open(_STATION_CONFIG_PATH, encoding="utf-8") as f:
+                data = json.load(f)
+            node_mappings = data.get("node_mappings") or {}
+            info = node_mappings.get(str(machine_id)) if isinstance(node_mappings.get(str(machine_id)), dict) else None
+            if info:
+                return {
+                    "name": info.get("asset_name", machine_id),
+                    "shop": info.get("shop", "Unassigned Shop"),
+                    "line": info.get("line", "Unassigned Line"),
+                    "type": info.get("equipment_type", "Equipment"),
+                }
+    except Exception as e:
+        logger.debug("station_config_read_failed", machine_id=machine_id, error=str(e))
+    return {
+        "name": machine_id,
+        "shop": "Unassigned Shop",
+        "line": "Unassigned Line",
+        "type": "Equipment",
+    }
+
 
 # Equipment metadata lookup (moved from api_server.py)
 EQUIPMENT_METADATA = {
@@ -83,14 +124,13 @@ class MachineService:
         machines = []
         for row in rows:
             machine_id = row['machine_id']
-            metadata = EQUIPMENT_METADATA.get(machine_id, {})
-            
+            metadata = _metadata_for_machine(str(machine_id))
             machines.append({
                 "machine_id": machine_id,
-                "machine_name": metadata.get("name", machine_id),
-                "shop": metadata.get("shop", "Unassigned Shop"),
-                "line_name": metadata.get("line", "Unassigned Line"),
-                "equipment_type": metadata.get("type", "Equipment"),
+                "machine_name": metadata["name"],
+                "shop": metadata["shop"],
+                "line_name": metadata["line"],
+                "equipment_type": metadata["type"],
                 "last_seen": row['last_seen'],
                 "failure_probability": row['failure_prediction'],
                 "rul_days": float(row['rul_days']),
@@ -139,14 +179,13 @@ class MachineService:
         if not row:
             raise ResourceNotFound("Machine", machine_id)
         
-        metadata = EQUIPMENT_METADATA.get(machine_id, {})
-        
+        metadata = _metadata_for_machine(str(machine_id))
         return {
             "machine_id": machine_id,
-            "machine_name": metadata.get("name", machine_id),
-            "shop": metadata.get("shop", "Unassigned Shop"),
-            "line_name": metadata.get("line", "Unassigned Line"),
-            "equipment_type": metadata.get("type", "Equipment"),
+            "machine_name": metadata["name"],
+            "shop": metadata["shop"],
+            "line_name": metadata["line"],
+            "equipment_type": metadata["type"],
             "last_seen": row['last_seen'],
             "failure_probability": row['failure_prediction'],
             "degradation_score": float(row['degradation_score']),

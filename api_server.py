@@ -52,10 +52,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 # Use centralized configuration
 from config import get_settings
-from database import check_database_health, get_db, init_database, shutdown_database
-from dependencies import get_current_user
+from database import check_database_health, get_db, get_db_context, init_database, shutdown_database
+from dependencies import (
+    get_current_user,
+    get_scoped_machine_filter,
+    require_engineer_permission,
+    require_operator_or_above,
+)
+from services.rbac_service import can_access_machine, can_access_raw_data
+from schemas.security import User
+from schemas.profiling import DataProfile
 from schemas.response import APIResponse, ORJSONResponse
 from auth_utils import decode_access_token
+from services.connectivity_monitor_service import ConnectivityMonitorService
 
 # Rate Limiting
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -70,7 +79,7 @@ settings = get_settings()
 # =============================================================================
 REDIS_HOST = settings.redis.host
 REDIS_PORT = settings.redis.port
-REDIS_CHANNEL = 'sensor_stream'
+REDIS_CHANNEL = settings.redis.redis_channel
 
 # DATABASE_URL is now managed by database.py via settings
 
@@ -197,16 +206,28 @@ async def lifespan(app: FastAPI):
         print(f"⚠ Redis connection failed: {e}")
         state.redis = None
     
-    # Load ML Model
-    try:
-        pipeline = joblib.load('gaia_model.pkl')
-        state.model = pipeline['model']
-        state.scaler = pipeline['scaler']
-        state.feature_columns = pipeline['feature_columns']
-        state.processor = SignalProcessor(sample_rate=SAMPLE_RATE, n_samples=N_SAMPLES)
-        print(f"✓ ML Model loaded: {len(state.feature_columns)} features")
-    except Exception as e:
-        print(f"⚠ ML Model not loaded: {e}")
+    # Load ML Model (path from config, resolved relative to project root)
+    model_path = settings.model.resolved_gaia_model_path
+    if not model_path.exists():
+        print(f"Model file not found at {model_path} — inference endpoints will return 503")
+        state.model = None
+        state.scaler = None
+        state.feature_columns = None
+        state.processor = None
+    else:
+        try:
+            pipeline = joblib.load(str(model_path))
+            state.model = pipeline['model']
+            state.scaler = pipeline['scaler']
+            state.feature_columns = pipeline['feature_columns']
+            state.processor = SignalProcessor(sample_rate=SAMPLE_RATE, n_samples=N_SAMPLES)
+            print(f"✓ ML Model loaded: {len(state.feature_columns)} features")
+        except Exception as e:
+            print(f"Model file not found at {model_path} — inference endpoints will return 503")
+            state.model = None
+            state.scaler = None
+            state.feature_columns = None
+            state.processor = None
     
     # Start background inference stream subscriber (Golden Pipeline Stage 6)
     inference_task = asyncio.create_task(_inference_stream_subscriber())
@@ -494,9 +515,18 @@ except ImportError as e:
 
 # Include Enterprise API routes (alarms, work orders, MTBF/MTTR, schedules)
 try:
-    from enterprise_api import enterprise_router
+    from enterprise_api import enterprise_router, labeling_router, alerts_router, drift_router, models_router, onboarding_router, verify_router, admin_router
     app.include_router(enterprise_router)
+    app.include_router(labeling_router)
+    app.include_router(alerts_router)
+    app.include_router(drift_router)
+    app.include_router(models_router)
+    app.include_router(onboarding_router)
+    app.include_router(verify_router)
+    app.include_router(admin_router)
     print("✓ Enterprise API routes loaded")
+    print("✓ Labeling API routes loaded")
+    print("✓ Alerts API routes loaded")
 except ImportError as e:
     print(f"⚠ Enterprise API not available: {e}")
 
@@ -566,18 +596,40 @@ async def fetch_latest_features(db: AsyncSession, machine_id: str, limit: int = 
 # =============================================================================
 # GOLDEN PIPELINE ENDPOINTS (Stage 6)
 # =============================================================================
+
+def _normalize_inference_to_prediction_response(data: dict) -> dict:
+    """Ensure inference payload has PredictionResponse fields (with defaults for legacy cache)."""
+    out = dict(data)
+    out.setdefault("failure_probability", out.get("failure_prediction", 0.0))
+    out.setdefault("health_score", max(0, min(100, (1.0 - out.get("failure_probability", 0)) * 100)))
+    rul_h = out.get("rul_hours", -1.0)
+    rul_d = (rul_h / 24.0) if rul_h >= 0 else -1.0
+    out.setdefault("rul_days", rul_d)
+    out.setdefault("rul_lower_80", rul_d if rul_d >= 0 else -1.0)
+    out.setdefault("rul_upper_80", rul_d if rul_d >= 0 else -1.0)
+    out.setdefault("confidence", "MEDIUM")
+    out.setdefault("in_training_distribution", True)
+    return out
+
+
 @app.get("/api/inference/latest", tags=["Pipeline"])
-async def get_all_latest_inference():
+async def get_all_latest_inference(user: User = Depends(get_current_user)):
     """
-    Get the latest inference results from the Golden Pipeline for all machines.
-    Reads from Redis cache populated by the inference_results stream subscriber.
+    Get the latest inference results from the Golden Pipeline.
+    Scoped by role: only machines the user can access.
     """
+    if state.model is None:
+        raise HTTPException(status_code=503, detail="Model not loaded")
     if state.redis is None:
         raise HTTPException(status_code=503, detail="Redis not connected")
 
+    machine_filter = get_scoped_machine_filter(user)
+    if machine_filter is not None and len(machine_filter) == 0:
+        return APIResponse.success(data=[], count=0)
+
     results = []
-    # Scan for all inference:latest:* keys
     cursor = b"0"
+    allowed = set(machine_filter) if machine_filter is not None else None
     while True:
         cursor, keys = await state.redis.scan(
             cursor=cursor, match="inference:latest:*", count=100
@@ -586,7 +638,11 @@ async def get_all_latest_inference():
             raw = await state.redis.get(key)
             if raw:
                 try:
-                    results.append(json.loads(raw))
+                    data = json.loads(raw)
+                    mid = data.get("machine_id")
+                    if allowed is not None and mid not in allowed:
+                        continue
+                    results.append(_normalize_inference_to_prediction_response(data))
                 except json.JSONDecodeError:
                     pass
         if cursor == 0:
@@ -596,10 +652,15 @@ async def get_all_latest_inference():
 
 
 @app.get("/api/inference/latest/{machine_id}", tags=["Pipeline"])
-async def get_machine_inference(machine_id: str):
+async def get_machine_inference(machine_id: str, user: User = Depends(get_current_user)):
     """
     Get the latest inference result for a specific machine.
+    RBAC: user must have access to this machine.
     """
+    if not can_access_machine(user, machine_id):
+        raise HTTPException(status_code=403, detail="Not authorized for this machine")
+    if state.model is None:
+        raise HTTPException(status_code=503, detail="Model not loaded")
     if state.redis is None:
         raise HTTPException(status_code=503, detail="Redis not connected")
 
@@ -609,7 +670,8 @@ async def get_machine_inference(machine_id: str):
             status_code=404,
             detail=f"No inference results for machine {machine_id}",
         )
-    return json.loads(raw)
+    data = json.loads(raw)
+    return _normalize_inference_to_prediction_response(data)
 
 @app.post("/api/ingest/upload", tags=["Pipeline"])
 async def upload_ingest_files(files: List[UploadFile] = File(...)):
@@ -689,7 +751,7 @@ def run_bootstrap_sequence():
 
 
 @app.post("/api/ingest/bootstrap", tags=["Pipeline"])
-async def bootstrap_nasa_data():
+async def bootstrap_nasa_data(current_user=Depends(require_engineer_permission)):
     """
     Triggers local archive extraction in the background and ensures Watcher is active.
     Returns immediately; bootstrap runs in a daemon thread.
@@ -914,6 +976,49 @@ async def get_pipeline_status():
     }
 
 
+@app.post("/api/pipeline/start-live-adapters", tags=["Pipeline"])
+async def start_live_adapters(current_user=Depends(require_engineer_permission)):
+    """
+    Start Option B: ABB adapter, Siemens S7 adapter, and stream publisher as separate processes.
+    Spawns abb_adapter.py, siemens_s7_adapter.py, and stream_publisher.py in the project root.
+    Requires Redis to be running; adapters will retry until their PLC/OPC targets are available.
+    """
+    project_root = Path(__file__).resolve().parent
+    python = sys.executable
+    scripts = [
+        ("abb_adapter.py", "ABB (OPC-UA)"),
+        ("siemens_s7_adapter.py", "Siemens S7 (snap7)"),
+        ("stream_publisher.py", "Stream publisher"),
+    ]
+    started = []
+    for script_name, label in scripts:
+        script_path = project_root / script_name
+        if not script_path.exists():
+            raise HTTPException(
+                status_code=500,
+                detail=f"Script not found: {script_name}. Run from project root.",
+            )
+        try:
+            # Detach: new session on Unix so processes outlive the request
+            kwargs = {"cwd": str(project_root), "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
+            if sys.platform != "win32":
+                kwargs["start_new_session"] = True
+            else:
+                kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+            subprocess.Popen([python, script_name], **kwargs)
+            started.append(label)
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to start {label}: {e}",
+            )
+    return {
+        "ok": True,
+        "message": "Started live adapters (Option B).",
+        "started": started,
+    }
+
+
 # =============================================================================
 # REST ENDPOINTS
 # =============================================================================
@@ -945,15 +1050,53 @@ async def detailed_health_check():
     )
 
 
+@app.get("/api/edge/connectivity", tags=["Edge"])
+async def get_edge_connectivity(db: AsyncSession = Depends(get_db)):
+    """Return offline buffer gap report (no auth)."""
+    report = await ConnectivityMonitorService().get_gap_report(db)
+    return report
+
+
+@app.get("/api/edge/gap-history", tags=["Edge"])
+async def get_edge_gap_history(
+    days: int = Query(30, ge=1, le=365, description="Number of days of history"),
+    db: AsyncSession = Depends(get_db),
+    user=Depends(require_operator_or_above),
+):
+    """Return gap_events for the last N days (operator+)."""
+    result = await db.execute(
+        text("""
+            SELECT id, adapter_source, gap_started_at, gap_ended_at,
+                   readings_buffered, readings_replayed, duration_minutes
+            FROM gap_events
+            WHERE gap_started_at >= now() - interval '1 day' * :days
+            ORDER BY gap_started_at DESC
+        """),
+        {"days": days},
+    )
+    rows = result.mappings().all()
+    return [dict(r) for r in rows]
+
+
 @app.get("/api/features", tags=["Data"])
 async def get_features(
     limit: int = Query(100, ge=1, le=1000, description="Number of records to return"),
     machine_id: str = Query(None, description="Filter by machine ID"),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> APIResponse[List[Dict]]:
     """
-    Retrieve historical feature records.
+    Retrieve historical feature records. RBAC: machine and raw-data access enforced.
     """
+    if not can_access_raw_data(user):
+        raise HTTPException(status_code=403, detail="Raw data access not permitted")
+    if machine_id and not can_access_machine(user, machine_id):
+        raise HTTPException(status_code=403, detail="Not authorized for this machine")
+
+    machine_filter = get_scoped_machine_filter(user)
+    if machine_filter is not None and len(machine_filter) == 0:
+        return APIResponse.success(data=[], count=0)
+
     try:
         if machine_id:
             query = text("""
@@ -990,11 +1133,14 @@ async def get_features(
                 LIMIT :limit
             """)
             result = await db.execute(query, {"limit": limit})
-        
+
         # Convert rows to dicts
         rows = result.mappings().all()
         data = [dict(row) for row in rows]
-        
+        if machine_filter is not None:
+            allowed = set(machine_filter)
+            data = [row for row in data if row.get("machine_id") in allowed]
+
         # ISO format timestamps (if not already handled by json encoder)
         for row in data:
             if row.get('timestamp'):
@@ -1003,26 +1149,108 @@ async def get_features(
         return APIResponse.success(data=data, count=len(data))
     except Exception as e:
         print(f"Error extracting features: {e}")
-        return APIResponse.error(str(e))
+        return APIResponse.from_error(str(e))
 
 
 @app.get("/api/machines", tags=["Data"], response_class=ORJSONResponse)
-async def get_machines(db: AsyncSession = Depends(get_db)) -> APIResponse[List[Dict]]:
+async def get_machines(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> APIResponse[List[Dict]]:
     """
     Get list of active machines with their current status.
-    Uses MachineService for business logic encapsulation.
+    Scoped by role: technician/plant_manager see only allowed machines.
     """
     try:
         from services.machine_service import MachineService
-        
+
+        machine_filter = get_scoped_machine_filter(user)
+        if machine_filter is not None and len(machine_filter) == 0:
+            return APIResponse.success(data=[], count=0)
+
         service = MachineService(db)
         machines = await service.get_all_machines()
-            
+        if machine_filter is not None:
+            allowed = set(machine_filter)
+            machines = [m for m in machines if m.get("machine_id") in allowed]
+
         return APIResponse.success(data=machines, count=len(machines))
     except Exception as e:
         print(f"Error fetching machines: {e}")
-        return APIResponse.error(str(e))
+        return APIResponse.from_error(str(e))
 
+
+@app.get("/api/machines/{machine_id}/profile", tags=["Data"], response_class=ORJSONResponse)
+async def get_machine_profile(
+    machine_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """
+    Get the latest data quality profile for a machine.
+    RBAC: user must have access to this machine.
+    """
+    if not can_access_machine(user, machine_id):
+        raise HTTPException(status_code=403, detail="Not authorized for this machine")
+    query = text("""
+        SELECT machine_id, profiled_at, profile_json, overall_status, hours_analyzed
+        FROM data_profiles
+        WHERE machine_id = :machine_id
+        ORDER BY profiled_at DESC
+        LIMIT 1
+    """)
+    result = await db.execute(query, {"machine_id": machine_id})
+    row = result.mappings().first()
+    if not row:
+        raise HTTPException(status_code=404, detail=f"No profile found for machine {machine_id}")
+    data = dict(row["profile_json"])
+    data["machine_id"] = row["machine_id"]
+    data["profiled_at"] = row["profiled_at"]
+    data["hours_analyzed"] = row["hours_analyzed"]
+    data["overall_status"] = row["overall_status"]
+    profile = DataProfile.model_validate(data)
+    return APIResponse.success(data=profile.model_dump(mode="json"))
+
+
+@app.post("/api/machines/{machine_id}/profile/run", status_code=202, tags=["Data"])
+async def run_machine_profile(
+    machine_id: str,
+    background_tasks: BackgroundTasks,
+    hours: int = 48,
+    current_user=Depends(require_engineer_permission),
+):
+    """
+    Trigger a new data quality profile run for the machine (background).
+    Returns 202 Accepted immediately; profile is persisted when complete.
+    """
+    async def run_and_save_profile() -> None:
+        from services.data_profiler_service import DataProfilerService
+        async with get_db_context() as db:
+            try:
+                service = DataProfilerService(db)
+                profile = await service.profile(machine_id, hours=hours)
+                payload = profile.model_dump(mode="json")
+                await db.execute(
+                    text("""
+                        INSERT INTO data_profiles (machine_id, profiled_at, profile_json, overall_status, hours_analyzed)
+                        VALUES (:machine_id, :profiled_at, CAST(:profile_json AS jsonb), :overall_status, :hours_analyzed)
+                    """),
+                    {
+                        "machine_id": machine_id,
+                        "profiled_at": profile.profiled_at,
+                        "profile_json": json.dumps(payload),
+                        "overall_status": profile.overall_status,
+                        "hours_analyzed": profile.hours_analyzed,
+                    },
+                )
+                await db.commit()
+            except Exception as e:
+                await db.rollback()
+                from logger import get_logger
+                get_logger("api_server.profile").warning("Profile run failed: %s", e)
+
+    background_tasks.add_task(run_and_save_profile)
+    return {"status": "accepted", "message": f"Profile job scheduled for machine {machine_id} (hours={hours})"}
 
 
 # =============================================================================
@@ -1051,7 +1279,10 @@ async def run_analytics_task():
         )
 
 @app.post("/api/analytics/trigger", status_code=202, tags=["Analytics"])
-async def trigger_analytics(background_tasks: BackgroundTasks):
+async def trigger_analytics(
+    background_tasks: BackgroundTasks,
+    current_user=Depends(require_engineer_permission),
+):
     """
     Trigger the heavy analytics engine in the background.
     Returns immediately with 202 Accepted.
@@ -1061,22 +1292,19 @@ async def trigger_analytics(background_tasks: BackgroundTasks):
 
 
 @app.get("/api/recommendations/{machine_id}", tags=["AI"])
-async def get_recommendation(machine_id: str, db: AsyncSession = Depends(get_db)):
+async def get_recommendation(
+    machine_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     """
     Get AI-powered maintenance recommendation for a specific machine.
-    
-    Uses LLM (OpenAI/Azure/Ollama) to analyze current sensor data and
-    generate intelligent, contextual maintenance recommendations.
-    
-    The response includes:
-    - priority: CRITICAL, HIGH, MEDIUM, or LOW
-    - action: Recommended maintenance action
-    - reasoning: AI explanation based on sensor data
-    - timeWindow: When to perform maintenance
-    - parts: List of required parts
-    - estimatedDowntime: Expected duration
-    - safetyNotes: Safety considerations
+    RBAC: user must have access to this machine.
+    Uses LLM to analyze sensor data and generate maintenance recommendations.
     """
+    if not can_access_machine(user, machine_id):
+        raise HTTPException(status_code=403, detail="Not authorized for this machine")
+
     try:
         # Import AI recommendation engine
         from ai_recommendations import generate_maintenance_recommendation
@@ -1133,28 +1361,33 @@ async def get_recommendation(machine_id: str, db: AsyncSession = Depends(get_db)
 async def websocket_stream(websocket: WebSocket, token: str = Query(None)):
     """
     Real-time WebSocket stream of sensor telemetry.
-    
-    Subscribes to Redis sensor_stream channel and broadcasts
-    processed data to connected clients at ~10Hz.
-    
+    Only pushes messages for machines the user can access (RBAC).
     Requires valid JWT token in query parameter: /ws/stream?token=...
     """
-    # 1. Pilot Mode: Bypass Token Validation
-    # if not token:
-    #     print("[WS] Connection rejected: No token provided")
-    #     await websocket.close(code=1008, reason="Missing authentication token")
-    #     return
-        
-    # payload = decode_access_token(token)
-    # if not payload:
-    #     print("[WS] Connection rejected: Invalid token")
-    #     await websocket.close(code=1008, reason="Invalid authentication token")
-    #     return
-        
-    # 2. Accept & Store User
-    user_id = "pilot_operator" # Fallback for pilot mode
+    visible_machine_ids = None  # None = all machines (admin/engineer/operator)
+    user_id = "anonymous"
+    if token:
+        try:
+            from types import SimpleNamespace
+            from services.auth_service import verify_token
+            from schemas.security import TokenType
+            token_data = verify_token(token, expected_type=TokenType.ACCESS)
+            if not token_data.is_expired:
+                user_id = token_data.username
+                user_like = SimpleNamespace(
+                    role=token_data.role,
+                    site_id=token_data.site_id,
+                    assigned_machine_ids=token_data.assigned_machine_ids or [],
+                )
+                visible_machine_ids = get_scoped_machine_filter(user_like)
+        except Exception:
+            visible_machine_ids = []  # Invalid token: no machines
+    else:
+        visible_machine_ids = []  # No token: no machine data
+
     websocket.state.user_id = user_id
-    
+    websocket.state.visible_machine_ids = visible_machine_ids
+
     await websocket.accept()
     state.connected_clients.append(websocket)
     print(f"[WS] Client connected: {user_id}. Total: {len(state.connected_clients)}")
@@ -1163,7 +1396,9 @@ async def websocket_stream(websocket: WebSocket, token: str = Query(None)):
         if state.redis is None:
             await websocket.send_json({"type": "error", "error": "Redis not connected"})
             return
-        
+        if state.model is None:
+            await websocket.send_json({"type": "error", "error": "Model not loaded"})
+
         # Subscribe to Redis channel
         pubsub = state.redis.pubsub()
         await pubsub.subscribe(REDIS_CHANNEL)
@@ -1293,8 +1528,9 @@ async def websocket_stream(websocket: WebSocket, token: str = Query(None)):
                     recommendation = "None"
                     op_status = "OFFLINE"
                     asset_info = {}
-                
-                # Build response payload
+
+                # Build response payload (PredictionResponse-aligned schema)
+                health_score = max(0, min(100, (1.0 - failure_prob) * 100))
                 response = {
                     "type": "telemetry",
                     "timestamp": payload.get('timestamp', datetime.now(timezone.utc).isoformat()),
@@ -1302,18 +1538,19 @@ async def websocket_stream(websocket: WebSocket, token: str = Query(None)):
                     "rotational_speed": payload.get('rotational_speed', 0),
                     "temperature": payload.get('temperature', 0),
                     "failure_probability": failure_prob,
+                    "health_score": float(health_score),
+                    "rul_days": float(rul_days),
+                    "rul_lower_80": float(rul_days),
+                    "rul_upper_80": float(rul_days),
+                    "confidence": "MEDIUM",
+                    "in_training_distribution": True,
                     "bpfi_amp": features.get('bpfi_amp', 0),
                     "bpfo_amp": features.get('bpfo_amp', 0),
                     "degradation_score": features.get('degradation_score', 0),
                     "spectral_entropy": features.get('spectral_entropy', 0),
-                    
-                    # New Real-Time Intelligence (Phase 3)
-                    "rul_days": float(rul_days),
                     "anomaly_detected": bool(anomaly_detected),
                     "anomaly_type": str(anomaly_type),
                     "recommendation": str(recommendation),
-                    
-                    # Asset Core (Phase 4)
                     "operational_status": op_status,
                     "line_id": asset_info.get("line_id", "L_UNKNOWN"),
                     "line_name": asset_info.get("line_name", "Unassigned Line"),
@@ -1321,6 +1558,10 @@ async def websocket_stream(websocket: WebSocket, token: str = Query(None)):
                     "install_date": asset_info.get("install_date", "N/A"),
                 }
                 
+                # RBAC: only push for machines the user can access
+                visible = getattr(websocket.state, "visible_machine_ids", None)
+                if visible is not None and response.get("machine_id", "UNKNOWN") not in visible:
+                    continue
                 # Send to client (only if open)
                 if websocket.client_state.name == "CONNECTED" and websocket.application_state.name == "CONNECTED":
                     await websocket.send_json(response)

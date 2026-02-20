@@ -41,6 +41,8 @@ function ActiveAlarmFeed({ machineId }) {
         return () => clearInterval(interval);
     }, [machineId]);
 
+    const [feedbackSubmitting, setFeedbackSubmitting] = useState({});
+
     const handleAcknowledge = async (alarmId) => {
         try {
             await fetch(`http://localhost:8000/api/enterprise/alarms/${alarmId}/acknowledge`, {
@@ -52,12 +54,32 @@ function ActiveAlarmFeed({ machineId }) {
         }
     };
 
+    const handleFeedback = async (alarmId, label) => {
+        setFeedbackSubmitting((prev) => ({ ...prev, [alarmId]: true }));
+        try {
+            const res = await fetch('http://localhost:8000/api/labeling/feedback-from-alarm', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ alarm_id: alarmId, label })
+            });
+            if (res.ok) fetchAlarms();
+        } catch (err) {
+            console.error('[Feedback Error]', err);
+        } finally {
+            setFeedbackSubmitting((prev) => ({ ...prev, [alarmId]: false }));
+        }
+    };
+
     // Filter alarms
-    const filteredAlarms = alarms.filter(alarm => {
+    const filtered = alarms.filter(alarm => {
         if (filter === 'active') return alarm.active && !alarm.acknowledged;
         if (filter === 'acknowledged') return alarm.acknowledged;
         return true;
     });
+
+    const severityOrder = (s) => ({ critical: 0, warning: 1, info: 2 }[String(s).toLowerCase()] ?? 2);
+    const duration = (alarm) => alarm.duration_seconds ?? (Date.now() - new Date(alarm.timestamp || 0).getTime()) / 1000;
+    const filteredAlarms = [...filtered].sort((a, b) => severityOrder(a.severity) - severityOrder(b.severity) || duration(b) - duration(a));
 
     // Count by severity
     const criticalCount = alarms.filter(a => a.severity === 'critical' && a.active).length;
@@ -154,10 +176,42 @@ function ActiveAlarmFeed({ machineId }) {
                                         <Typography variant="body2" fontWeight="medium" sx={{ lineHeight: 1.3 }}>
                                             {alarm.message}
                                         </Typography>
+                                        {alarm.confirmation_cycles_remaining != null && alarm.severity !== 'critical' && (
+                                            <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.25 }}>
+                                                Will escalate to CRITICAL in {alarm.confirmation_cycles_remaining} more cycle{alarm.confirmation_cycles_remaining !== 1 ? 's' : ''}
+                                            </Typography>
+                                        )}
+                                        {alarm.confirmation_cycles_remaining != null && alarm.severity === 'critical' && (
+                                            <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.25 }}>Escalated</Typography>
+                                        )}
                                         <Stack direction="row" spacing={0.5} alignItems="center" sx={{ mt: 0.5 }}>
                                             <Clock size={12} className="text-slate-400" />
                                             <Typography variant="caption" color="text.secondary">{formatTime(alarm.timestamp)}</Typography>
                                         </Stack>
+                                        {alarm.severity === 'warning' && alarm.active && !alarm.acknowledged && (
+                                            <Stack direction="row" spacing={0.5} sx={{ mt: 1 }}>
+                                                <Button
+                                                    size="small"
+                                                    variant="outlined"
+                                                    color="error"
+                                                    disabled={feedbackSubmitting[alarm.alarm_id]}
+                                                    onClick={() => handleFeedback(alarm.alarm_id, 1)}
+                                                    sx={{ fontSize: '0.65rem', minWidth: 'auto', px: 1, height: 22 }}
+                                                >
+                                                    Confirmed Issue
+                                                </Button>
+                                                <Button
+                                                    size="small"
+                                                    variant="outlined"
+                                                    color="inherit"
+                                                    disabled={feedbackSubmitting[alarm.alarm_id]}
+                                                    onClick={() => handleFeedback(alarm.alarm_id, 0)}
+                                                    sx={{ fontSize: '0.65rem', minWidth: 'auto', px: 1, height: 22 }}
+                                                >
+                                                    False Alarm
+                                                </Button>
+                                            </Stack>
+                                        )}
                                     </Box>
                                     {alarm.active && !alarm.acknowledged && (
                                         <Button

@@ -1,6 +1,7 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import AlertsPanel from './AlertsPanel';
 import FleetTopology from './FleetTopology';
+import { FleetTreemap } from './FleetTreemap';
 import CriticalMachineCard from './CriticalMachineCard';
 import { DashboardGrid } from './DashboardGrid';
 import AnomalyDiscoveryPanel from './AnomalyDiscoveryPanel';
@@ -21,7 +22,7 @@ import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
  * PlantOverview Component (Enterprise Edition)
  * High-density dashboard for fleet monitoring.
  */
-function PlantOverview({ machines, messages, onSelectMachine }) {
+function PlantOverview({ user, machines, messages, onSelectMachine, onStartOnboarding }) {
     const theme = useTheme();
 
     // Batch Selection State
@@ -250,45 +251,58 @@ function PlantOverview({ machines, messages, onSelectMachine }) {
         },
         topology: {
             id: 'topology',
-            content: (
-                <Card variant="outlined" sx={{ borderRadius: 2, height: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-                    <CardHeader
-                        title={
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                <LayoutDashboard size={18} className="text-slate-500" />
-                                <Typography variant="subtitle1" fontWeight="bold">Fleet Topology</Typography>
+            content: (() => {
+                const role = user?.role ? String(user.role).toLowerCase() : null;
+                const useTreemap = role === 'plant_manager' || role === 'reliability_engineer';
+                return (
+                    <Card variant="outlined" sx={{ borderRadius: 2, height: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                        <CardHeader
+                            title={
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                    <LayoutDashboard size={18} className="text-slate-500" />
+                                    <Typography variant="subtitle1" fontWeight="bold">
+                                        {useTreemap ? 'Fleet Treemap' : 'Fleet Topology'}
+                                    </Typography>
+                                </Box>
+                            }
+                            sx={{ bgcolor: 'grey.50', py: 1, borderBottom: 1, borderColor: 'divider', flexShrink: 0 }}
+                        />
+                        <CardContent sx={{ p: 0, '&:last-child': { pb: 0 }, flexGrow: 1, overflow: 'hidden', minHeight: 320 }}>
+                            <Box sx={{ overflow: 'hidden', height: '100%', minHeight: 320 }}>
+                                {useTreemap ? (
+                                    <FleetTreemap
+                                        machines={machines}
+                                        onSelectMachine={role === 'reliability_engineer' ? null : onSelectMachine}
+                                    />
+                                ) : (
+                                    <FleetTopology
+                                        machines={machines}
+                                        onSelectMachine={onSelectMachine}
+                                        height={layoutPositions['topology']?.h ? layoutPositions['topology'].h - 100 : 500}
+                                        width={layoutPositions['topology']?.w}
+                                    />
+                                )}
                             </Box>
-                        }
-                        sx={{ bgcolor: 'grey.50', py: 1, borderBottom: 1, borderColor: 'divider', flexShrink: 0 }}
-                    />
-                    <CardContent sx={{ p: 0, '&:last-child': { pb: 0 }, flexGrow: 1, overflow: 'hidden' }}>
-                        <Box sx={{ overflow: 'hidden', height: '100%' }}>
-                            <FleetTopology
-                                machines={machines}
-                                onSelectMachine={onSelectMachine}
-                                height={layoutPositions['topology']?.h ? layoutPositions['topology'].h - 100 : 500}
-                                width={layoutPositions['topology']?.w}
-                            />
-                        </Box>
 
-                        {/* Legend Footer */}
-                        <Stack direction="row" spacing={2} p={1.5} borderTop={1} borderColor="divider" justifyContent="center">
-                            <Stack direction="row" alignItems="center" spacing={1}>
-                                <Box sx={{ width: 8, height: 8, bgcolor: 'success.light', borderRadius: '50%' }} />
-                                <Typography variant="caption" color="text.secondary">Optimal</Typography>
+                            {/* Legend Footer */}
+                            <Stack direction="row" spacing={2} p={1.5} borderTop={1} borderColor="divider" justifyContent="center">
+                                <Stack direction="row" alignItems="center" spacing={1}>
+                                    <Box sx={{ width: 8, height: 8, bgcolor: 'success.light', borderRadius: '50%' }} />
+                                    <Typography variant="caption" color="text.secondary">Optimal</Typography>
+                                </Stack>
+                                <Stack direction="row" alignItems="center" spacing={1}>
+                                    <Box sx={{ width: 8, height: 8, bgcolor: 'warning.main', borderRadius: '50%' }} />
+                                    <Typography variant="caption" color="text.secondary">Warning</Typography>
+                                </Stack>
+                                <Stack direction="row" alignItems="center" spacing={1}>
+                                    <Box sx={{ width: 8, height: 8, bgcolor: 'error.main', borderRadius: '50%' }} />
+                                    <Typography variant="caption" color="text.secondary">Critical</Typography>
+                                </Stack>
                             </Stack>
-                            <Stack direction="row" alignItems="center" spacing={1}>
-                                <Box sx={{ width: 8, height: 8, bgcolor: 'warning.main', borderRadius: '50%' }} />
-                                <Typography variant="caption" color="text.secondary">Warning</Typography>
-                            </Stack>
-                            <Stack direction="row" alignItems="center" spacing={1}>
-                                <Box sx={{ width: 8, height: 8, bgcolor: 'error.main', borderRadius: '50%' }} />
-                                <Typography variant="caption" color="text.secondary">Critical</Typography>
-                            </Stack>
-                        </Stack>
-                    </CardContent>
-                </Card>
-            )
+                        </CardContent>
+                    </Card>
+                );
+            })()
         },
         alerts: {
             id: 'alerts',
@@ -310,7 +324,7 @@ function PlantOverview({ machines, messages, onSelectMachine }) {
                 </Box>
             )
         }
-    }), [critical, machines, onSelectMachine, alerts, layoutPositions, healthy.length, warning.length, theme, selectedIds]); // Added selectedIds dependency
+    }), [critical, machines, onSelectMachine, alerts, layoutPositions, healthy.length, warning.length, theme, selectedIds, user]);
 
     // Merge static content with dynamic position state
     const gridItems = useMemo(() => {
@@ -328,8 +342,26 @@ function PlantOverview({ machines, messages, onSelectMachine }) {
         return items;
     }, [layoutPositions, widgetsContent]);
 
+    if (machines.length === 0 && onStartOnboarding) {
+        return (
+            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '50vh', py: 6, px: 2 }}>
+                <Factory style={{ width: 80, height: 80, marginBottom: 24, color: 'var(--mui-palette-text-disabled)' }} />
+                <Typography variant="h6" color="text.secondary" gutterBottom>No machines yet</Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2, textAlign: 'center', maxWidth: 400 }}>
+                    Add your first machine to start monitoring health and predictions.
+                </Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ mb: 3, textAlign: 'center', maxWidth: 400, display: 'block' }}>
+                    If you ran the Azure PM stream: log in as Admin, Engineer, or Operator to see the fleet. Technician and Reliability Engineer roles see a limited or aggregate view.
+                </Typography>
+                <Button variant="contained" size="large" onClick={onStartOnboarding}>
+                    Add your first machine
+                </Button>
+            </Box>
+        );
+    }
+
     return (
-        <Box sx={{ flexGrow: 1 }}>
+        <Box sx={{ flexGrow: 1, minHeight: 'calc(100vh - 120px)', display: 'flex', flexDirection: 'column' }}>
             {/* Draggable Dashboard Grid (Free Form) */}
             <DashboardGrid
                 items={gridItems}

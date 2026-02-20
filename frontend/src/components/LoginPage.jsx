@@ -3,22 +3,48 @@ import { Box, Typography, TextField, Button, InputAdornment, Paper, Stack, useTh
 import { alpha } from '@mui/material/styles';
 import { Lock, User, ChevronRight, Hexagon, ShieldCheck } from 'lucide-react';
 
+const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_BASE || 'http://localhost:8000');
+
 const LoginPage = ({ onLogin }) => {
     const theme = useTheme();
     const [loading, setLoading] = useState(false);
+    const [error, setError] = useState(null);
     const [credentials, setCredentials] = useState({ username: '', password: '' });
 
     const handleChange = (e) => {
+        setError(null);
         setCredentials({ ...credentials, [e.target.name]: e.target.value });
     };
 
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
         setLoading(true);
-        // Simulate network delay for effect
-        setTimeout(() => {
-            onLogin();
-        }, 800);
+        setError(null);
+        try {
+            const form = new URLSearchParams();
+            form.append('username', credentials.username);
+            form.append('password', credentials.password);
+            const res = await fetch(`${API_BASE}/api/enterprise/token`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: form.toString(),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                setError(data.detail || 'Invalid credentials');
+                setLoading(false);
+                return;
+            }
+            if (data.access_token) {
+                localStorage.setItem('access_token', data.access_token);
+                onLogin();
+            } else {
+                setError('No token received');
+            }
+        } catch (err) {
+            setError(err.message || 'Connection failed');
+        }
+        setLoading(false);
     };
 
     return (
@@ -143,6 +169,11 @@ const LoginPage = ({ onLogin }) => {
                             }}
                         />
 
+                        {error && (
+                            <Typography variant="body2" color="error" sx={{ textAlign: 'center' }}>
+                                {error}
+                            </Typography>
+                        )}
                         <Button
                             type="submit"
                             fullWidth

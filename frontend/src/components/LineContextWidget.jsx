@@ -5,9 +5,10 @@ import { useTheme, alpha } from '@mui/material/styles';
 
 /**
  * LineContextWidget
- * Display's the machine's context within the production line (Upstream/Downstream).
+ * Displays the machine's context within the production line (Upstream/Downstream).
+ * onCompareTrends: optional callback when "Compare Trends" is clicked (e.g. scroll to trend charts).
  */
-function LineContextWidget({ machineId, lineId = 'L-1' }) {
+function LineContextWidget({ machineId, lineId = 'L-1', onCompareTrends }) {
     const theme = useTheme();
 
     // Mock Topology Context
@@ -70,13 +71,16 @@ function LineContextWidget({ machineId, lineId = 'L-1' }) {
 
                 <Divider />
 
-                <Box sx={{ p: 2, bgcolor: 'grey.50' }}>
+                <Box sx={{ p: 2, bgcolor: 'grey.50' }} data-no-drag onClick={() => onCompareTrends?.()}>
                     <Button
+                        type="button"
                         variant="outlined"
                         fullWidth
                         startIcon={<Activity size={16} />}
                         size="small"
-                        sx={{ bgcolor: 'white' }}
+                        sx={{ bgcolor: 'white', pointerEvents: 'auto' }}
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={(e) => { e.stopPropagation(); onCompareTrends?.(); }}
                     >
                         Compare Trends
                     </Button>

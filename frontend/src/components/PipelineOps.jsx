@@ -48,6 +48,8 @@ export default function PipelineOps({ onGoLive }) {
     const [uploadStats, setUploadStats] = useState({ current: 0, total: 0 });
     const [bootstrapping, setBootstrapping] = useState(false);
     const [setupGuideOpen, setSetupGuideOpen] = useState(false);
+    const [startAdaptersLoading, setStartAdaptersLoading] = useState(false);
+    const [startAdaptersMessage, setStartAdaptersMessage] = useState(null);
     const fileInputRef = useRef(null);
     const intervalRef = useRef(null);
 
@@ -318,6 +320,49 @@ export default function PipelineOps({ onGoLive }) {
                                     </Button>
                                 </span>
                             </Tooltip>
+                            <Tooltip title="Start ABB adapter, Siemens S7 adapter, and stream publisher as separate processes (Option B). Requires Redis." arrow>
+                                <Button
+                                    variant="outlined"
+                                    color="secondary"
+                                    startIcon={startAdaptersLoading ? <RefreshIcon sx={{ animation: 'spin 2s linear infinite' }} /> : <PlayArrowIcon />}
+                                    onClick={async () => {
+                                        setStartAdaptersMessage(null);
+                                        setStartAdaptersLoading(true);
+                                        try {
+                                            const res = await fetch(`${API_BASE}/api/pipeline/start-live-adapters`, { method: 'POST' });
+                                            const data = await res.json().catch(() => ({}));
+                                            if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+                                            setStartAdaptersMessage({ type: 'success', text: data.message || 'Started ABB, Siemens S7, and stream publisher.' });
+                                            fetchStatus();
+                                        } catch (err) {
+                                            setStartAdaptersMessage({ type: 'error', text: err.message });
+                                        } finally {
+                                            setStartAdaptersLoading(false);
+                                        }
+                                    }}
+                                    disabled={startAdaptersLoading}
+                                    sx={{
+                                        height: 32,
+                                        textTransform: 'none',
+                                        fontWeight: 600,
+                                        fontSize: '0.8rem',
+                                        borderColor: theme.palette.secondary.main,
+                                        color: theme.palette.secondary.main,
+                                        '&:hover': { borderColor: theme.palette.secondary.dark, color: theme.palette.secondary.dark }
+                                    }}
+                                >
+                                    {startAdaptersLoading ? 'Starting...' : 'Start Live Adapters'}
+                                </Button>
+                            </Tooltip>
+                            {startAdaptersMessage && (
+                                <Chip
+                                    size="small"
+                                    label={startAdaptersMessage.text}
+                                    color={startAdaptersMessage.type === 'success' ? 'success' : 'error'}
+                                    onDelete={() => setStartAdaptersMessage(null)}
+                                    sx={{ maxWidth: 320 }}
+                                />
+                            )}
                             <input
                                 type="file"
                                 ref={fileInputRef}
@@ -417,7 +462,38 @@ export default function PipelineOps({ onGoLive }) {
                 {/* Setup Guide (collapsible) */}
                 <Collapse in={setupGuideOpen}>
                     <Paper elevation={0} sx={{ mb: 3, p: 2, border: 1, borderColor: 'divider', borderRadius: 2, bgcolor: 'grey.50' }}>
-                        <Typography variant="caption" fontWeight={700} color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>CLI STEPS (run in terminal)</Typography>
+                        <Typography variant="caption" fontWeight={700} color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>RUN THE STACK — Terminal checklist</Typography>
+                        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>Run these in order (use separate terminals for steps 5 and 6).</Typography>
+                        <Box component="ol" sx={{ m: 0, pl: 2.5, '& li': { mb: 1.5 } }}>
+                            <li>
+                                <Typography variant="caption" fontWeight={600} color="text.secondary">One-time setup (venv + deps + DB + migrations)</Typography>
+                                <Box component="pre" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', overflow: 'auto', mt: 0.5, p: 1.5, bgcolor: 'background.paper', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>{`cd <project-root>   # e.g. ~/Desktop/PDM-PILOT
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+.venv/bin/alembic upgrade head`}</Box>
+                            </li>
+                            <li>
+                                <Typography variant="caption" fontWeight={600} color="text.secondary">Start infrastructure (TimescaleDB + Redis)</Typography>
+                                <Box component="pre" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', overflow: 'auto', mt: 0.5, p: 1.5, bgcolor: 'background.paper', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>{`docker compose up -d timescaledb redis`}</Box>
+                            </li>
+                            <li>
+                                <Typography variant="caption" fontWeight={600} color="text.secondary">Activate venv (in each terminal where you run Python)</Typography>
+                                <Box component="pre" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', overflow: 'auto', mt: 0.5, p: 1.5, bgcolor: 'background.paper', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>{`source .venv/bin/activate`}</Box>
+                            </li>
+                            <li>
+                                <Typography variant="caption" fontWeight={600} color="text.secondary">Apply migrations (if not done in step 1)</Typography>
+                                <Box component="pre" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', overflow: 'auto', mt: 0.5, p: 1.5, bgcolor: 'background.paper', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>{`alembic upgrade head`}</Box>
+                            </li>
+                            <li>
+                                <Typography variant="caption" fontWeight={600} color="text.secondary">Terminal 1 — Start API backend</Typography>
+                                <Box component="pre" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', overflow: 'auto', mt: 0.5, p: 1.5, bgcolor: 'background.paper', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>{`uvicorn api_server:app --host 0.0.0.0 --port 8000 --reload`}</Box>
+                            </li>
+                            <li>
+                                <Typography variant="caption" fontWeight={600} color="text.secondary">Terminal 2 — Start frontend (Pipeline UI)</Typography>
+                                <Box component="pre" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', overflow: 'auto', mt: 0.5, p: 1.5, bgcolor: 'background.paper', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>{`cd frontend && npm run dev`}</Box>
+                            </li>
+                        </Box>
+                        <Typography variant="caption" fontWeight={700} color="text.secondary" sx={{ display: 'block', mt: 2, mb: 1 }}>CLI STEPS (data &amp; model — run after stack is up)</Typography>
                         <Box component="pre" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', overflow: 'auto', m: 0, color: 'text.primary' }}>
 {`# 1. Get data (choose one or both)
 python scripts/download_nasa_data.py     # → archive.zip

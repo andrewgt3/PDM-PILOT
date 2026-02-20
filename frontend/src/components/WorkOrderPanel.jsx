@@ -1,20 +1,35 @@
-import React, { useState, useEffect } from 'react';
-import { ClipboardList, Plus, Clock, User, CheckCircle, Send, Calendar, RefreshCw } from 'lucide-react';
-import { Card, CardContent, Typography, Box, Button, TextField, MenuItem, Chip, Stack, IconButton, Collapse, Alert, CircularProgress, Divider } from '@mui/material';
+import React, { useState, useEffect, useMemo } from 'react';
+import { ClipboardList, Plus, User, Send, Calendar, RefreshCw } from 'lucide-react';
+import { Card, Typography, Box, Button, TextField, MenuItem, Chip, Stack, IconButton, Collapse, Alert, CircularProgress, Divider, FormControlLabel, Switch } from '@mui/material';
+import useCurrentUser from '../hooks/useCurrentUser';
+import { canCreateWorkOrder } from '../utils/rolePermissions';
+
+const API_BASE = 'http://localhost:8000';
+
+function getAuthHeaders() {
+    const token = localStorage.getItem('access_token') || localStorage.getItem('token');
+    const headers = { 'Content-Type': 'application/json' };
+    if (token) headers.Authorization = `Bearer ${token}`;
+    return headers;
+}
 
 /**
  * WorkOrderPanel Component
- * 
- * Real work order management with database persistence.
+ * Role-aware: technician sees assigned machines only, "Assigned to me" filter; Create hidden for technician/reliability_engineer.
  */
 function WorkOrderPanel({ machine }) {
+    const user = useCurrentUser();
+    const role = user?.role ? String(user.role).toLowerCase() : null;
+    const isTechnician = role === 'technician';
+    const assignedMachineIds = user?.assignedMachineIds || [];
+
     const [orders, setOrders] = useState([]);
     const [loading, setLoading] = useState(true);
     const [showForm, setShowForm] = useState(false);
     const [submitting, setSubmitting] = useState(false);
     const [submitted, setSubmitted] = useState(false);
+    const [assignedToMeOnly, setAssignedToMeOnly] = useState(false);
 
-    // Form state
     const [formData, setFormData] = useState({
         title: '',
         description: '',
@@ -27,10 +42,10 @@ function WorkOrderPanel({ machine }) {
     const fetchOrders = async () => {
         try {
             const url = machineId
-                ? `http://localhost:8000/api/enterprise/work-orders?machine_id=${machineId}&limit=10`
-                : `http://localhost:8000/api/enterprise/work-orders?limit=10`;
+                ? `${API_BASE}/api/enterprise/work-orders?machine_id=${machineId}&limit=50`
+                : `${API_BASE}/api/enterprise/work-orders?limit=50`;
 
-            const response = await fetch(url);
+            const response = await fetch(url, { headers: getAuthHeaders() });
             if (response.ok) {
                 const result = await response.json();
                 setOrders(result.data || []);
@@ -46,14 +61,26 @@ function WorkOrderPanel({ machine }) {
         fetchOrders();
     }, [machineId]);
 
+    const displayOrders = useMemo(() => {
+        let list = orders;
+        if (isTechnician && assignedMachineIds.length > 0 && !machineId) {
+            const set = new Set(assignedMachineIds);
+            list = list.filter((o) => o.machine_id && set.has(o.machine_id));
+        }
+        if (isTechnician && assignedToMeOnly && (user?.username || user?.userId)) {
+            const me = (user.username || user.userId || '').toLowerCase();
+            list = list.filter((o) => (o.assigned_to || '').toLowerCase() === me);
+        }
+        return list;
+    }, [orders, isTechnician, assignedMachineIds, machineId, assignedToMeOnly, user?.username, user?.userId]);
+
     const handleSubmit = async (e) => {
         e.preventDefault();
         setSubmitting(true);
-
         try {
-            const response = await fetch('http://localhost:8000/api/enterprise/work-orders', {
+            const response = await fetch(`${API_BASE}/api/enterprise/work-orders`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: getAuthHeaders(),
                 body: JSON.stringify({
                     machine_id: machineId,
                     title: formData.title || 'Maintenance Required',
@@ -62,12 +89,11 @@ function WorkOrderPanel({ machine }) {
                     work_type: formData.work_type
                 })
             });
-
             if (response.ok) {
                 setSubmitted(true);
                 setShowForm(false);
                 setFormData({ title: '', description: '', priority: 'medium', work_type: 'corrective' });
-                fetchOrders(); // Refresh list
+                fetchOrders();
                 setTimeout(() => setSubmitted(false), 3000);
             }
         } catch (err) {
@@ -79,9 +105,9 @@ function WorkOrderPanel({ machine }) {
 
     const updateStatus = async (orderId, newStatus) => {
         try {
-            await fetch(`http://localhost:8000/api/enterprise/work-orders/${orderId}`, {
+            await fetch(`${API_BASE}/api/enterprise/work-orders/${orderId}`, {
                 method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
+                headers: getAuthHeaders(),
                 body: JSON.stringify({ status: newStatus })
             });
             fetchOrders();
@@ -89,6 +115,8 @@ function WorkOrderPanel({ machine }) {
             console.error('[Update Status Error]', err);
         }
     };
+
+    const showCreateButton = canCreateWorkOrder(role);
 
     const statusConfig = {
         completed: { color: 'success', label: 'Completed' },
@@ -121,24 +149,38 @@ function WorkOrderPanel({ machine }) {
     return (
         <Card variant="outlined" sx={{ height: '100%', borderRadius: 2, display: 'flex', flexDirection: 'column' }}>
             {/* Header */}
-            <Box sx={{ px: 2, py: 1.5, borderBottom: 1, borderColor: 'divider', bgcolor: 'grey.50', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Box sx={{ px: 2, py: 1.5, borderBottom: 1, borderColor: 'divider', bgcolor: 'grey.50', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}>
                 <Stack direction="row" spacing={1} alignItems="center">
                     <ClipboardList size={20} className="text-slate-600" />
                     <Typography variant="subtitle2" fontWeight="bold">Work Orders</Typography>
+                    {isTechnician && (
+                        <FormControlLabel
+                            control={
+                                <Switch
+                                    size="small"
+                                    checked={assignedToMeOnly}
+                                    onChange={(e) => setAssignedToMeOnly(e.target.checked)}
+                                />
+                            }
+                            label={<Typography variant="caption">Assigned to me</Typography>}
+                        />
+                    )}
                 </Stack>
                 <Stack direction="row" spacing={1}>
                     <IconButton size="small" onClick={fetchOrders} title="Refresh">
                         <RefreshCw size={16} />
                     </IconButton>
-                    <Button
-                        variant="contained"
-                        size="small"
-                        startIcon={<Plus size={16} />}
-                        onClick={() => setShowForm(!showForm)}
-                        sx={{ fontSize: '0.75rem' }}
-                    >
-                        Create Order
-                    </Button>
+                    {showCreateButton && (
+                        <Button
+                            variant="contained"
+                            size="small"
+                            startIcon={<Plus size={16} />}
+                            onClick={() => setShowForm(!showForm)}
+                            sx={{ fontSize: '0.75rem' }}
+                        >
+                            Create Order
+                        </Button>
+                    )}
                 </Stack>
             </Box>
 
@@ -211,7 +253,7 @@ function WorkOrderPanel({ machine }) {
 
             {/* Work Orders List */}
             <Box sx={{ flex: 1, overflowY: 'auto', maxHeight: 350 }}>
-                {orders.length === 0 ? (
+                {displayOrders.length === 0 ? (
                     <Box sx={{ p: 4, textAlign: 'center', color: 'text.secondary' }}>
                         <ClipboardList size={32} style={{ opacity: 0.3, marginBottom: 8 }} />
                         <Typography variant="body2">No work orders yet</Typography>
@@ -219,7 +261,7 @@ function WorkOrderPanel({ machine }) {
                     </Box>
                 ) : (
                     <Stack divider={<Divider />}>
-                        {orders.map(order => {
+                        {displayOrders.map(order => {
                             const status = statusConfig[order.status] || statusConfig.pending;
                             return (
                                 <Box key={order.work_order_id} sx={{ p: 2, '&:hover': { bgcolor: 'action.hover' } }}>
@@ -279,7 +321,7 @@ function WorkOrderPanel({ machine }) {
 
             {/* Footer */}
             <Box sx={{ px: 2, py: 1, bgcolor: 'grey.50', borderTop: 1, borderColor: 'divider', display: 'flex', justifyContent: 'space-between' }}>
-                <Typography variant="caption" color="text.secondary">{orders.length} work orders</Typography>
+                <Typography variant="caption" color="text.secondary">{displayOrders.length} work orders</Typography>
                 <Typography variant="caption" color="text.disabled">Source: PDM Database</Typography>
             </Box>
         </Card>

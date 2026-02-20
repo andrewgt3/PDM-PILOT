@@ -19,6 +19,8 @@ import shutil
 import logging
 import uuid
 import subprocess
+import json
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from watchdog.observers import Observer
@@ -117,15 +119,22 @@ class DropZoneHandler(FileSystemEventHandler):
             # 3. Notify Redis (Ingestion Stage visibility)
             try:
                 import redis
-                import json
-                r_direct = redis.Redis(host='localhost', port=6379, decode_responses=True)
+                from config import get_settings
+                s = get_settings()
+                pw = s.redis.password.get_secret_value() if s.redis.password else None
+                r_direct = redis.Redis(
+                    host=s.redis.host,
+                    port=s.redis.port,
+                    password=pw,
+                    decode_responses=True,
+                )
                 payload = {
                     "machine_id": "Bearing_1",
                     "timestamp": timestamp,
                     "filename": str(rel_path),
                     "event": "FILE_INGESTED"
                 }
-                r_direct.xadd("raw_sensor_data", {"data": json.dumps(payload)}, maxlen=10000)
+                r_direct.xadd("raw_sensor_data", {"data": json.dumps(payload)}, maxlen=s.redis.stream_maxlen)
             except Exception as re:
                 logger.error("Failed to notify Redis: %s", re)
             
@@ -135,6 +144,54 @@ class DropZoneHandler(FileSystemEventHandler):
 
         except Exception as e:
             logger.error("Failed to process file %s: %s", filepath, e, exc_info=True)
+
+
+# =============================================================================
+# INFERENCE ALERT CONSUMER (background thread)
+# =============================================================================
+
+INFERENCE_STREAM = "inference_results"
+
+def _inference_alert_loop():
+    """Background thread: XREAD inference_results, call alert_engine.process() for each message."""
+    try:
+        import asyncio
+        from database import init_database
+        asyncio.run(init_database())
+    except Exception as e:
+        logger.warning("Database init for alert consumer skipped: %s", e)
+    from config import get_settings
+    s = get_settings()
+    pw = s.redis.password.get_secret_value() if s.redis.password else None
+    logger.info("Inference alert consumer thread started (stream=%s)", INFERENCE_STREAM)
+    last_id = "$"
+    import redis
+    while True:
+        try:
+            r = redis.Redis(host=s.redis.host, port=s.redis.port, password=pw, decode_responses=True)
+            messages = r.xread({INFERENCE_STREAM: last_id}, count=50, block=5000)
+            if not messages:
+                continue
+            for _stream, entries in messages:
+                for msg_id, fields in entries:
+                    last_id = msg_id
+                    try:
+                        raw = fields.get("data", "{}")
+                        data = json.loads(raw) if isinstance(raw, str) else raw
+                        machine_id = data.get("machine_id", "unknown")
+                        from services.alert_engine import process as alert_process
+                        event = alert_process(machine_id, data)
+                        if event:
+                            logger.info("Alert event: %s %s", event.tier, event.machine_id)
+                    except Exception as e:
+                        logger.debug("Alert process skip: %s", e)
+        except (redis.ConnectionError, redis.RedisError, OSError):
+            logger.debug("Redis unavailable for inference alerts; retrying in 5s")
+            time.sleep(5)
+        except Exception as e:
+            logger.warning("Inference alert consumer error: %s", e)
+            time.sleep(5)
+
 
 # =============================================================================
 # MAIN LOOP
@@ -154,6 +211,10 @@ def start_watcher():
             filepath = Path(root) / file
             logger.info("Processing existing file: %s", file)
             event_handler.process_ingestion(filepath)
+
+    # Start inference alert consumer (background thread)
+    alert_thread = threading.Thread(target=_inference_alert_loop, daemon=True)
+    alert_thread.start()
 
     observer = Observer()
     # ENABLE RECURSION

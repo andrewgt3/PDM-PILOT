@@ -28,17 +28,21 @@ import xgboost as xgb
 import numpy as np
 from pathlib import Path
 
+from config import get_settings
+
 # =============================================================================
-# CONFIGURATION
+# CONFIGURATION (Redis and model paths from config, project-root resolved)
 # =============================================================================
 
+_settings = get_settings()
 BASE_DIR = Path(__file__).parent
-MODELS_DIR = BASE_DIR / "data" / "models"
+MODELS_DIR = _settings.model.resolved_scaler_path.parent
 CONFIG_FILE = BASE_DIR / "station_config.json"
-SCALER_PATH = MODELS_DIR / "scaler.pkl"
+SCALER_PATH = _settings.model.resolved_scaler_path
 
-REDIS_HOST = "localhost"
-REDIS_PORT = 6379
+REDIS_HOST = _settings.redis.host
+REDIS_PORT = _settings.redis.port
+REDIS_PASSWORD = _settings.redis.password.get_secret_value() if _settings.redis.password else None
 INPUT_STREAM = "clean_features"
 OUTPUT_STREAM = "inference_results"
 CONSUMER_GROUP = "inference_group"
@@ -88,7 +92,7 @@ logger = logging.getLogger("inference")
 
 class InferenceEngine:
     def __init__(self):
-        self.redis = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
+        self.redis = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, password=REDIS_PASSWORD, decode_responses=True)
         self.scaler = None
         self.models = {}  # Cache for loaded models
         self.station_map = {}

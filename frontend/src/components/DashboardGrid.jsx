@@ -14,7 +14,7 @@ import { GripVertical, Scaling } from 'lucide-react';
  * A clear wrapper for free-form dragging and resizing.
  */
 function FreeDraggableWidget({ id, left, top, width, height, children, dragHandle = true, onResize }) {
-    const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, isDragging } = useDraggable({
         id: id,
     });
 
@@ -46,7 +46,6 @@ function FreeDraggableWidget({ id, left, top, width, height, children, dragHandl
         transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
         width: currentWidth,
         height: currentHeight,
-        touchAction: 'none', // Critical for drag interactions
         cursor: isDragging ? 'grabbing' : 'auto',
         boxShadow: isDragging ? '0px 10px 20px rgba(0,0,0,0.2)' : 'none',
         // Important: disable transition during resize for 1:1 feel
@@ -133,10 +132,11 @@ function FreeDraggableWidget({ id, left, top, width, height, children, dragHandl
     };
 
     return (
-        <Box ref={setNodeRef} style={style}>
+        <Box ref={setNodeRef} style={style} id={id}>
             <Box sx={{ position: 'relative', height: '100%', border: isResizing || isDragging ? '1px dashed #3b82f6' : 'none' }}>
                 {dragHandle && (
                     <Box
+                        ref={setActivatorNodeRef}
                         {...listeners}
                         {...attributes}
                         sx={{
@@ -145,6 +145,7 @@ function FreeDraggableWidget({ id, left, top, width, height, children, dragHandl
                             right: 8,
                             zIndex: 1200,
                             cursor: 'grab',
+                            touchAction: 'none',
                             opacity: 0.6,
                             '&:hover': { opacity: 1, bgcolor: 'action.hover' },
                             color: 'text.secondary',
@@ -160,7 +161,9 @@ function FreeDraggableWidget({ id, left, top, width, height, children, dragHandl
                     </Box>
                 )}
 
-                {children}
+                <Box sx={{ pointerEvents: 'auto', touchAction: 'auto', height: '100%', position: 'relative', zIndex: 2 }}>
+                    {children}
+                </Box>
 
                 {/* Resize Handle */}
                 <Box
@@ -223,6 +226,13 @@ export function DashboardGrid({ items, onUpdate, children }) {
         onUpdate(id, { width, height });
     };
 
+    // Ensure grid is tall enough so scrollIntoView can bring lower widgets into view
+    const contentHeight = Object.values(items).reduce((acc, item) => {
+        const bottom = (item.y ?? 0) + (item.height ?? 400);
+        return Math.max(acc, bottom);
+    }, 0);
+    const minHeight = Math.max(typeof window !== 'undefined' ? window.innerHeight : 800, contentHeight + 100);
+
     return (
         <DndContext
             sensors={sensors}
@@ -231,7 +241,8 @@ export function DashboardGrid({ items, onUpdate, children }) {
             <Box sx={{
                 position: 'relative',
                 width: '100%',
-                minHeight: '100vh', // Full screen feel
+                minHeight: minHeight,
+                height: minHeight,
                 bgcolor: 'background.default',
                 // Remove the "small" feel - make it a backdrop
                 backgroundImage: 'radial-gradient(#e5e7eb 1px, transparent 1px)', // Subtle dot grid for whiteboard feel

@@ -35,6 +35,7 @@ from services.auth_service import (
     InvalidTokenError,
     get_auth_service,
 )
+from services.rbac_service import get_visible_machine_ids
 
 logger = get_logger(__name__)
 
@@ -146,6 +147,8 @@ async def get_current_user(
         is_active=True,
         created_at=token_data.iat,
         updated_at=token_data.iat,
+        site_id=token_data.site_id,
+        assigned_machine_ids=token_data.assigned_machine_ids,
     )
     
     logger.debug(
@@ -280,6 +283,41 @@ get_current_admin_user = get_current_active_superuser
 
 
 # =============================================================================
+# Plant-floor RBAC: UserInToken and scoped machine filter
+# =============================================================================
+
+async def get_current_user_with_role(
+    token_data: Annotated[TokenData, Depends(get_token_data)],
+    request: Request,
+) -> User:
+    """Same as get_current_user; returns User with role, site_id, assigned_machine_ids for RBAC."""
+    return await get_current_user(token_data, request)
+
+
+def require_role(allowed_roles: list[str]):
+    """Dependency factory: raises 403 if user.role not in allowed_roles.
+    Usage: user: User = Depends(require_role(['admin', 'engineer', 'plant_manager']))."""
+    allowed_set = {r.lower().strip() for r in allowed_roles}
+
+    async def _check(user: Annotated[User, Depends(get_current_user)]) -> User:
+        if user.role.value.lower() not in allowed_set:
+            logger.warning("Role not allowed", user=user.username, role=user.role.value, allowed=allowed_roles)
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Insufficient role for this action",
+            )
+        return user
+
+    return _check
+
+
+def get_scoped_machine_filter(user: User) -> list[str] | None:
+    """Return visible machine IDs for the user, or None for no filter (all machines).
+    None = no restriction; [] = no machines; [id, ...] = filter to these IDs."""
+    return get_visible_machine_ids(user)
+
+
+# =============================================================================
 # Optional Authentication
 # =============================================================================
 
@@ -347,6 +385,8 @@ async def get_optional_user(
             is_active=True,
             created_at=token_data.iat,
             updated_at=token_data.iat,
+            site_id=token_data.site_id,
+            assigned_machine_ids=token_data.assigned_machine_ids,
         )
         
     except InvalidTokenError:
@@ -428,9 +468,12 @@ class PermissionChecker:
                     "admin": UserRole.ADMIN,
                     "administrator": UserRole.ADMIN,
                     "superuser": UserRole.ADMIN,
+                    "engineer": UserRole.ENGINEER,
                     "operator": UserRole.OPERATOR,
-                    "plant_manager": UserRole.OPERATOR,  # Map plant_manager to operator
+                    "plant_manager": UserRole.PLANT_MANAGER,
                     "manager": UserRole.OPERATOR,
+                    "technician": UserRole.TECHNICIAN,
+                    "reliability_engineer": UserRole.RELIABILITY_ENGINEER,
                     "viewer": UserRole.VIEWER,
                     "readonly": UserRole.VIEWER,
                     "read_only": UserRole.VIEWER,
@@ -518,8 +561,10 @@ class PermissionChecker:
 # =============================================================================
 # Pre-configured Permission Checkers
 # =============================================================================
+# Use as: Depends(require_admin_permission), Depends(require_engineer_permission), etc.
+# Or: Depends(PermissionChecker(required_roles=["engineer", "admin"]))
 
-# Common permission checker instances for convenience
 require_admin_permission = PermissionChecker(required_roles=["admin"])
-require_operator_permission = PermissionChecker(required_roles=["admin", "operator"])
-require_any_role = PermissionChecker(required_roles=["admin", "operator", "viewer"])
+require_engineer_permission = PermissionChecker(required_roles=["engineer", "admin"])
+require_operator_permission = PermissionChecker(required_roles=["operator", "engineer", "admin"])
+require_any_role = PermissionChecker(required_roles=["viewer", "operator", "engineer", "admin"])

@@ -1,7 +1,7 @@
 """
 Machine Learning Feature Schemas
 ================================
-Shared Pydantic models for ML feature validation.
+Shared Pydantic models for ML feature validation and prediction responses.
 Prevents training-serving skew by ensuring same features are used
 in training and inference.
 
@@ -11,9 +11,42 @@ TISAX/SOC2 Compliance:
     - Prevents silent schema drift
 """
 
-from typing import Optional, List
+from typing import Optional, List, Literal
 from pydantic import BaseModel, Field, field_validator
 import numpy as np
+
+
+# =============================================================================
+# PREDICTION RESPONSE (ML inference output)
+# =============================================================================
+
+class PredictionResponse(BaseModel):
+    """
+    Standard ML prediction response for failure classifier and RUL regressor.
+    Used by WebSocket stream and all API endpoints that return ML predictions.
+    When calibrated RUL model is available: rul_lower_80, rul_upper_80, confidence are set
+    (confidence: HIGH if interval width < 30% of point, MEDIUM 30-60%, LOW > 60%).
+    When not available, they may be None.
+    """
+    failure_probability: float = Field(..., ge=0, le=1, description="Calibrated probability of failure [0-1]")
+    health_score: float = Field(..., ge=0, le=100, description="Health score 0-100 (100 = healthy)")
+    rul_days: float = Field(..., description="RUL point estimate in days")
+    rul_lower_80: Optional[float] = Field(None, description="Lower bound of 80% prediction interval (days)")
+    rul_upper_80: Optional[float] = Field(None, description="Upper bound of 80% prediction interval (days)")
+    confidence: Optional[Literal["HIGH", "MEDIUM", "LOW"]] = Field(
+        None,
+        description="Confidence from interval width vs point estimate (HIGH/MEDIUM/LOW), or None if unset",
+    )
+    in_training_distribution: bool = Field(
+        ...,
+        description="True if feature validator did not flag out-of-distribution inputs",
+    )
+    machine_id: Optional[str] = None
+    timestamp: Optional[str] = None
+    inference_at: Optional[str] = None
+
+    class Config:
+        extra = "allow"  # Allow additional keys from inference (e.g. failure_class, rul_hours)
 
 
 class ModelFeatures(BaseModel):

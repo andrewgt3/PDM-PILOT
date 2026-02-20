@@ -30,34 +30,34 @@ def check_audit_logs():
         engine = create_engine(DATABASE_URL)
         
         with engine.connect() as conn:
-            # Check if audit_logs table exists
+            # Check if audit_log table exists (append-only audit trail)
             check_table_query = text("""
                 SELECT EXISTS (
                     SELECT FROM information_schema.tables 
-                    WHERE table_name = 'audit_logs'
+                    WHERE table_name = 'audit_log'
                 );
             """)
             result = conn.execute(check_table_query)
             table_exists = result.scalar()
             
             if not table_exists:
-                print("FAILURE: No logs found. (audit_logs table does not exist)")
+                print("FAILURE: No logs found. (audit_log table does not exist. Run migrations.)")
                 return
             
-            # Get the last 5 rows from audit_logs
+            # Get the last 5 rows from audit_log
             query = text("""
-                SELECT * FROM audit_logs 
-                ORDER BY id DESC 
+                SELECT * FROM audit_log
+                ORDER BY id DESC
                 LIMIT 5;
             """)
             result = conn.execute(query)
             rows = result.fetchall()
             
             if not rows:
-                print("FAILURE: No logs found. (audit_logs table is empty)")
+                print("FAILURE: No logs found. (audit_log table is empty)")
                 return
             
-            # Get column names
+            # Get column names (SQLAlchemy 2.0)
             columns = result.keys()
             
             print(f"SUCCESS: Found {len(rows)} audit log entries\n")

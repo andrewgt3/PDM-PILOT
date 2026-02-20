@@ -4,33 +4,16 @@ Verifies that:
 1. Invalid JSON returns 422 with INVALID_INPUT error
 2. Non-existent resources return 404 with ResourceNotFound
 3. Auth errors return appropriate status codes
+
+Uses conftest client and auth_headers so get_db is overridden and DB is not required to be pre-initialized.
 """
 
 import pytest
-from httpx import AsyncClient, ASGITransport
 
 
 @pytest.fixture
 def anyio_backend():
     return "asyncio"
-
-
-@pytest.fixture
-async def client():
-    """Create async test client."""
-    from api_server import app
-    
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        yield ac
-
-
-@pytest.fixture
-def auth_headers():
-    """Get valid auth token for protected endpoints."""
-    from auth_utils import create_access_token
-    token = create_access_token(data={"sub": "test_user", "role": "admin"})
-    return {"Authorization": f"Bearer {token}"}
 
 
 class TestBadJSONHandling:
@@ -80,13 +63,14 @@ class TestAuthErrors:
     
     @pytest.mark.anyio
     async def test_invalid_token_format(self, client):
-        """Malformed token should return 401."""
-        # Use a properly formatted but invalid JWT
+        """Malformed token should return 401 on a protected endpoint."""
+        # Use a properly formatted but invalid JWT; hit an endpoint that requires auth
         fake_jwt = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"
         
-        response = await client.get(
-            "/api/machines",
-            headers={"Authorization": f"Bearer {fake_jwt}"}
+        response = await client.post(
+            "/api/ingest/bootstrap",
+            json={},
+            headers={"Authorization": f"Bearer {fake_jwt}"},
         )
         
         assert response.status_code == 401

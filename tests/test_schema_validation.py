@@ -436,15 +436,24 @@ class TestAPIIntegration:
     
     @pytest.fixture
     def client(self):
-        """Create test client. Skip if FastAPI not available."""
+        """Create test client with DB initialized so get_db works. Skip if FastAPI not available."""
         try:
+            import asyncio
             from fastapi.testclient import TestClient
             from api_server import app
+            from database import init_database
+            # Initialize DB so get_db() does not raise "Database not initialized"
+            try:
+                asyncio.get_event_loop().run_until_complete(init_database())
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(init_database())
             return TestClient(app)
         except ImportError:
             pytest.skip("FastAPI test client not available")
     
-    def test_invalid_alarm_returns_422(self, client):
+    def test_invalid_alarm_returns_422(self, client, auth_headers):
         """Invalid alarm payload should return 422."""
         response = client.post(
             "/api/enterprise/alarms",
@@ -453,11 +462,12 @@ class TestAPIIntegration:
                 "severity": "warning",
                 "code": "ALM-001",
                 "message": "Test"
-            }
+            },
+            headers=auth_headers,
         )
         assert response.status_code == 422
-    
-    def test_sql_injection_returns_422(self, client):
+
+    def test_sql_injection_returns_422(self, client, auth_headers):
         """SQL injection attempt should return 422."""
         response = client.post(
             "/api/enterprise/alarms",
@@ -466,18 +476,20 @@ class TestAPIIntegration:
                 "severity": "warning",
                 "code": "ALM-001",
                 "message": "'; DROP TABLE alarms; --"
-            }
+            },
+            headers=auth_headers,
         )
         assert response.status_code == 422
-    
-    def test_xss_returns_422(self, client):
+
+    def test_xss_returns_422(self, client, auth_headers):
         """XSS attempt should return 422."""
         response = client.post(
             "/api/enterprise/work-orders",
             json={
                 "machine_id": "WB-001",
                 "title": "<script>alert('XSS')</script>"
-            }
+            },
+            headers=auth_headers,
         )
         assert response.status_code == 422
 

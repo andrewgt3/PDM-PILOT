@@ -18,6 +18,7 @@ from typing import Optional, List, Any
 from pydantic import BaseModel, Field, field_validator, EmailStr, ConfigDict
 from datetime import datetime, timezone, timedelta
 
+from .profiling import DataProfile, MetricProfile, ProfileStatus, ValueRange
 
 # =============================================================================
 # SECURITY PATTERNS - Block SQL Injection and XSS
@@ -665,5 +666,11 @@ __all__ = [
     
     # Stream
     'StreamControlRequestValidated',
+
+    # Profiling
+    'DataProfile',
+    'MetricProfile',
+    'ProfileStatus',
+    'ValueRange',
 ]
 

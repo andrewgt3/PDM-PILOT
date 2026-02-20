@@ -33,12 +33,35 @@ from pydantic import (
 
 class UserRole(str, Enum):
     """User authorization roles.
-    
-    Roles are hierarchical: ADMIN > OPERATOR > VIEWER
+
+    Hierarchy: ADMIN > ENGINEER > PLANT_MANAGER/RELIABILITY_ENGINEER > OPERATOR > TECHNICIAN > VIEWER.
+    - viewer: Read-only (dashboard, reports).
+    - operator: Viewer + acknowledge alerts, submit labels.
+    - technician: Assigned machines only, work orders only, no fleet view.
+    - plant_manager: All machines at one site, all work orders, no cross-site.
+    - reliability_engineer: Aggregated metrics across all sites, no raw sensor readings, no individual machine detail.
+    - engineer: Operator + create work orders, run profiling, drift/shadow.
+    - admin: Engineer + model promotion/rollback, user management, system config, audit log.
     """
-    VIEWER = "viewer"       # Read-only access
-    OPERATOR = "operator"   # Can acknowledge alarms, update schedules
-    ADMIN = "admin"         # Full access including user management
+    VIEWER = "viewer"                     # Read-only access
+    OPERATOR = "operator"                 # View dashboard, acknowledge alerts, submit labels
+    TECHNICIAN = "technician"             # Assigned machines + work orders only, no fleet view
+    PLANT_MANAGER = "plant_manager"       # All machines at one site, no cross-site
+    RELIABILITY_ENGINEER = "reliability_engineer"  # Aggregates only, no raw data / machine detail
+    ENGINEER = "engineer"                 # Operator + work orders, profiling, drift
+    ADMIN = "admin"                       # Engineer + model promotion, user mgmt, config, audit
+
+
+# Used for permission checks (higher = more privileged).
+ROLE_HIERARCHY = {
+    "admin": 5,
+    "engineer": 4,
+    "plant_manager": 3,
+    "reliability_engineer": 3,
+    "operator": 2,
+    "technician": 1,
+    "viewer": 0,
+}
 
 
 class TokenType(str, Enum):
@@ -212,7 +235,12 @@ class TokenData(BaseModel):
         str,
         Field(default_factory=lambda: str(uuid.uuid4()), description="Token ID"),
     ]
-    
+    site_id: str | None = Field(None, description="Site for plant_manager scoping")
+    assigned_machine_ids: list[str] = Field(
+        default_factory=list,
+        description="Pre-loaded machine IDs for technician",
+    )
+
     @property
     def user_id(self) -> str:
         """Alias for sub (subject) claim."""
@@ -272,6 +300,8 @@ class UserBase(BaseModel):
     ]
     role: UserRole = Field(default=UserRole.VIEWER, description="User role")
     is_active: bool = Field(default=True, description="Account active status")
+    site_id: str | None = Field(None, description="Site for plant_manager scoping")
+    assigned_machine_ids: list[str] = Field(default_factory=list, description="Assigned machine IDs for technician")
 
 
 class UserCreate(UserBase):

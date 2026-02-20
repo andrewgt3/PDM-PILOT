@@ -1,106 +1,1091 @@
 {
-    "node_mappings": {
-        "WB-001": {
-            "asset_name": "6-Axis Welder #1",
-            "shop": "Body Shop",
-            "line": "Underbody Weld Cell",
-            "equipment_type": "Spot Welder",
-            "opc_node_id": "ns=2;s=WB001",
-            "criticality": "high"
-        },
-        "WB-002": {
-            "asset_name": "6-Axis Welder #2",
-            "shop": "Body Shop",
-            "line": "Underbody Weld Cell",
-            "equipment_type": "Spot Welder",
-            "opc_node_id": "ns=2;s=WB002",
-            "criticality": "high"
-        },
-        "WB-003": {
-            "asset_name": "Seam Sealer Robot",
-            "shop": "Body Shop",
-            "line": "Sealer Cell",
-            "equipment_type": "Sealer",
-            "opc_node_id": "ns=2;s=WB003",
-            "criticality": "medium"
-        },
-        "PT-001": {
-            "asset_name": "E-Coat Pump #1",
-            "shop": "Paint Shop",
-            "line": "E-Coat Line",
-            "equipment_type": "Chemical Pump",
-            "opc_node_id": "ns=2;s=PT001",
-            "criticality": "high"
-        },
-        "PT-002": {
-            "asset_name": "Spray Robot #1",
-            "shop": "Paint Shop",
-            "line": "Topcoat Booth",
-            "equipment_type": "Paint Robot",
-            "opc_node_id": "ns=2;s=PT002",
-            "criticality": "high"
-        },
-        "GA-001": {
-            "asset_name": "Chassis Carrier #1",
-            "shop": "General Assembly",
-            "line": "Trim Line",
-            "equipment_type": "Carrier",
-            "opc_node_id": "ns=2;s=GA001",
-            "criticality": "medium"
-        },
-        "GA-002": {
-            "asset_name": "Torque Gun Station",
-            "shop": "General Assembly",
-            "line": "Chassis Line",
-            "equipment_type": "Torque Tool",
-            "opc_node_id": "ns=2;s=GA002",
-            "criticality": "high"
-        },
-        "CNC-001": {
-            "asset_name": "HAAS VF-2 Mill",
-            "shop": "Machining",
-            "line": "Line A (Precision)",
-            "equipment_type": "CNC Mill",
-            "opc_node_id": "ns=2;s=CNC001",
-            "criticality": "high"
-        },
-        "CNC-002": {
-            "asset_name": "Mazak Lathe",
-            "shop": "Machining",
-            "line": "Line A (Precision)",
-            "equipment_type": "CNC Lathe",
-            "opc_node_id": "ns=2;s=CNC002",
-            "criticality": "medium"
-        },
-        "TS-001": {
-            "asset_name": "Torque Station #1",
-            "shop": "Final Assembly",
-            "line": "Chassis Line",
-            "equipment_type": "Torque Tool",
-            "opc_node_id": "ns=2;s=TS001",
-            "criticality": "high"
-        },
-        "LA-003": {
-            "asset_name": "Lift Assist #3",
-            "shop": "Final Assembly",
-            "line": "Chassis Line",
-            "equipment_type": "Ergonomic Lift",
-            "opc_node_id": "ns=2;s=LA003",
-            "criticality": "low"
-        },
-        "CV-100": {
-            "asset_name": "Main Conveyor Drive",
-            "shop": "Final Assembly",
-            "line": "Chassis Line",
-            "equipment_type": "Conveyor Motor",
-            "opc_node_id": "ns=2;s=CV100",
-            "criticality": "critical"
-        }
+  "node_mappings": {
+    "WB-001": {
+      "asset_name": "6-Axis Welder #1",
+      "shop": "Body Shop",
+      "line": "Underbody Weld Cell",
+      "equipment_type": "Spot Welder",
+      "opc_node_id": "ns=2;s=WB001",
+      "criticality": "high",
+      "uns_path": "PlantAGI/Factory1/BodyShop/WeldCell_1/ABB_Robot"
     },
-    "metadata": {
-        "version": "1.0.0",
-        "plant": "PDM-PILOT Industrial Facility",
-        "last_updated": "2026-02-15T00:00:00Z",
-        "schema_version": "golden-pipeline-v1"
+    "WB-002": {
+      "asset_name": "6-Axis Welder #2",
+      "shop": "Body Shop",
+      "line": "Underbody Weld Cell",
+      "equipment_type": "Spot Welder",
+      "opc_node_id": "ns=2;s=WB002",
+      "criticality": "high",
+      "uns_path": "PlantAGI/Factory1/BodyShop/WeldCell_1/ABB_Robot_2"
+    },
+    "WB-003": {
+      "asset_name": "Seam Sealer Robot",
+      "shop": "Body Shop",
+      "line": "Sealer Cell",
+      "equipment_type": "Sealer",
+      "opc_node_id": "ns=2;s=WB003",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Factory1/BodyShop/SealerCell_1/ABB_Robot"
+    },
+    "HP-200": {
+      "asset_name": "Hydraulic Press 2000T",
+      "shop": "Stamping",
+      "line": "Press Line 1",
+      "equipment_type": "Hydraulic Press",
+      "opc_node_id": "ns=2;s=HP200",
+      "criticality": "high",
+      "uns_path": "PlantAGI/Factory1/Stamping/PressLine_1/HydraulicPress_HP200"
+    },
+    "TD-450": {
+      "asset_name": "Transfer Die Unit",
+      "shop": "Stamping",
+      "line": "Press Line 1",
+      "equipment_type": "Transfer Die",
+      "opc_node_id": "ns=2;s=TD450",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Factory1/Stamping/PressLine_1/TransferDie_TD450"
+    },
+    "PT-001": {
+      "asset_name": "E-Coat Pump #1",
+      "shop": "Paint Shop",
+      "line": "E-Coat Line",
+      "equipment_type": "Chemical Pump",
+      "opc_node_id": "ns=2;s=PT001",
+      "criticality": "high",
+      "uns_path": "PlantAGI/Factory1/PaintShop/ECoatLine/Pump_PT001"
+    },
+    "PT-002": {
+      "asset_name": "Spray Robot #1",
+      "shop": "Paint Shop",
+      "line": "Topcoat Booth",
+      "equipment_type": "Paint Robot",
+      "opc_node_id": "ns=2;s=PT002",
+      "criticality": "high",
+      "uns_path": "PlantAGI/Factory1/PaintShop/TopcoatBooth/SprayRobot_PT002"
+    },
+    "PR-101": {
+      "asset_name": "Paint Robot #1",
+      "shop": "Paint Shop",
+      "line": "Sealer Line",
+      "equipment_type": "Paint Applicator",
+      "opc_node_id": "ns=2;s=PR101",
+      "criticality": "high",
+      "uns_path": "PlantAGI/Factory1/PaintShop/SealerLine/PaintRobot_PR101"
+    },
+    "CO-050": {
+      "asset_name": "Curing Oven",
+      "shop": "Paint Shop",
+      "line": "Sealer Line",
+      "equipment_type": "Thermal Oven",
+      "opc_node_id": "ns=2;s=CO050",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Factory1/PaintShop/SealerLine/CuringOven_CO050"
+    },
+    "GA-001": {
+      "asset_name": "Chassis Carrier #1",
+      "shop": "General Assembly",
+      "line": "Trim Line",
+      "equipment_type": "Carrier",
+      "opc_node_id": "ns=2;s=GA001",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Factory1/GeneralAssembly/TrimLine/Carrier_GA001"
+    },
+    "GA-002": {
+      "asset_name": "Torque Gun Station",
+      "shop": "General Assembly",
+      "line": "Chassis Line",
+      "equipment_type": "Torque Tool",
+      "opc_node_id": "ns=2;s=GA002",
+      "criticality": "high",
+      "uns_path": "PlantAGI/Factory1/GeneralAssembly/ChassisLine/TorqueGun_GA002"
+    },
+    "CNC-001": {
+      "asset_name": "HAAS VF-2 Mill",
+      "shop": "Machining",
+      "line": "Line A (Precision)",
+      "equipment_type": "CNC Mill",
+      "opc_node_id": "ns=2;s=CNC001",
+      "criticality": "high",
+      "uns_path": "PlantAGI/Factory1/Machining/LineA_Precision/CNCMill_CNC001"
+    },
+    "CNC-002": {
+      "asset_name": "Mazak Lathe",
+      "shop": "Machining",
+      "line": "Line A (Precision)",
+      "equipment_type": "CNC Lathe",
+      "opc_node_id": "ns=2;s=CNC002",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Factory1/Machining/LineA_Precision/CNCLathe_CNC002"
+    },
+    "TS-001": {
+      "asset_name": "Torque Station #1",
+      "shop": "Final Assembly",
+      "line": "Chassis Line",
+      "equipment_type": "Torque Tool",
+      "opc_node_id": "ns=2;s=TS001",
+      "criticality": "high",
+      "uns_path": "PlantAGI/Factory1/FinalAssembly/ChassisLine/TorqueStation_TS001"
+    },
+    "LA-003": {
+      "asset_name": "Lift Assist #3",
+      "shop": "Final Assembly",
+      "line": "Chassis Line",
+      "equipment_type": "Ergonomic Lift",
+      "opc_node_id": "ns=2;s=LA003",
+      "criticality": "low",
+      "uns_path": "PlantAGI/Factory1/FinalAssembly/ChassisLine/LiftAssist_LA003"
+    },
+    "CV-100": {
+      "asset_name": "Main Conveyor Drive",
+      "shop": "Final Assembly",
+      "line": "Chassis Line",
+      "equipment_type": "Conveyor Motor",
+      "opc_node_id": "ns=2;s=CV100",
+      "criticality": "critical",
+      "uns_path": "PlantAGI/Factory1/FinalAssembly/ChassisLine/ConveyorMotor_CV100"
+    },
+    "TEST-001": {
+      "asset_name": "TEST-001",
+      "shop": "",
+      "line": "",
+      "equipment_type": "Unknown",
+      "opc_node_id": "",
+      "criticality": "medium",
+      "uns_path": ""
+    },
+    "1": {
+      "asset_name": "Azure Machine 1",
+      "shop": "MachineShop",
+      "line": "Line_1",
+      "equipment_type": "CNC Machine",
+      "opc_node_id": "ns=2;s=Azure_1",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/MachineShop/Line_1/Machine_1"
+    },
+    "2": {
+      "asset_name": "Azure Machine 2",
+      "shop": "Assembly",
+      "line": "Line_2",
+      "equipment_type": "Hydraulic Press",
+      "opc_node_id": "ns=2;s=Azure_2",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Assembly/Line_2/Machine_2"
+    },
+    "3": {
+      "asset_name": "Azure Machine 3",
+      "shop": "Stamping",
+      "line": "Line_3",
+      "equipment_type": "Conveyor",
+      "opc_node_id": "ns=2;s=Azure_3",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Stamping/Line_3/Machine_3"
+    },
+    "4": {
+      "asset_name": "Azure Machine 4",
+      "shop": "Finishing",
+      "line": "Line_4",
+      "equipment_type": "CNC Machine",
+      "opc_node_id": "ns=2;s=Azure_4",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Finishing/Line_4/Machine_4"
+    },
+    "5": {
+      "asset_name": "Azure Machine 5",
+      "shop": "MachineShop",
+      "line": "Line_5",
+      "equipment_type": "Hydraulic Press",
+      "opc_node_id": "ns=2;s=Azure_5",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/MachineShop/Line_5/Machine_5"
+    },
+    "6": {
+      "asset_name": "Azure Machine 6",
+      "shop": "Assembly",
+      "line": "Line_6",
+      "equipment_type": "Conveyor",
+      "opc_node_id": "ns=2;s=Azure_6",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Assembly/Line_6/Machine_6"
+    },
+    "7": {
+      "asset_name": "Azure Machine 7",
+      "shop": "Stamping",
+      "line": "Line_7",
+      "equipment_type": "CNC Machine",
+      "opc_node_id": "ns=2;s=Azure_7",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Stamping/Line_7/Machine_7"
+    },
+    "8": {
+      "asset_name": "Azure Machine 8",
+      "shop": "Finishing",
+      "line": "Line_8",
+      "equipment_type": "Hydraulic Press",
+      "opc_node_id": "ns=2;s=Azure_8",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Finishing/Line_8/Machine_8"
+    },
+    "9": {
+      "asset_name": "Azure Machine 9",
+      "shop": "MachineShop",
+      "line": "Line_9",
+      "equipment_type": "Conveyor",
+      "opc_node_id": "ns=2;s=Azure_9",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/MachineShop/Line_9/Machine_9"
+    },
+    "10": {
+      "asset_name": "Azure Machine 10",
+      "shop": "Assembly",
+      "line": "Line_10",
+      "equipment_type": "CNC Machine",
+      "opc_node_id": "ns=2;s=Azure_10",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Assembly/Line_10/Machine_10"
+    },
+    "11": {
+      "asset_name": "Azure Machine 11",
+      "shop": "Stamping",
+      "line": "Line_11",
+      "equipment_type": "Hydraulic Press",
+      "opc_node_id": "ns=2;s=Azure_11",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Stamping/Line_11/Machine_11"
+    },
+    "12": {
+      "asset_name": "Azure Machine 12",
+      "shop": "Finishing",
+      "line": "Line_12",
+      "equipment_type": "Conveyor",
+      "opc_node_id": "ns=2;s=Azure_12",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Finishing/Line_12/Machine_12"
+    },
+    "13": {
+      "asset_name": "Azure Machine 13",
+      "shop": "MachineShop",
+      "line": "Line_13",
+      "equipment_type": "CNC Machine",
+      "opc_node_id": "ns=2;s=Azure_13",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/MachineShop/Line_13/Machine_13"
+    },
+    "14": {
+      "asset_name": "Azure Machine 14",
+      "shop": "Assembly",
+      "line": "Line_14",
+      "equipment_type": "Hydraulic Press",
+      "opc_node_id": "ns=2;s=Azure_14",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Assembly/Line_14/Machine_14"
+    },
+    "15": {
+      "asset_name": "Azure Machine 15",
+      "shop": "Stamping",
+      "line": "Line_15",
+      "equipment_type": "Conveyor",
+      "opc_node_id": "ns=2;s=Azure_15",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Stamping/Line_15/Machine_15"
+    },
+    "16": {
+      "asset_name": "Azure Machine 16",
+      "shop": "Finishing",
+      "line": "Line_16",
+      "equipment_type": "CNC Machine",
+      "opc_node_id": "ns=2;s=Azure_16",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Finishing/Line_16/Machine_16"
+    },
+    "17": {
+      "asset_name": "Azure Machine 17",
+      "shop": "MachineShop",
+      "line": "Line_17",
+      "equipment_type": "Hydraulic Press",
+      "opc_node_id": "ns=2;s=Azure_17",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/MachineShop/Line_17/Machine_17"
+    },
+    "18": {
+      "asset_name": "Azure Machine 18",
+      "shop": "Assembly",
+      "line": "Line_18",
+      "equipment_type": "Conveyor",
+      "opc_node_id": "ns=2;s=Azure_18",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Assembly/Line_18/Machine_18"
+    },
+    "19": {
+      "asset_name": "Azure Machine 19",
+      "shop": "Stamping",
+      "line": "Line_19",
+      "equipment_type": "CNC Machine",
+      "opc_node_id": "ns=2;s=Azure_19",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Stamping/Line_19/Machine_19"
+    },
+    "20": {
+      "asset_name": "Azure Machine 20",
+      "shop": "Finishing",
+      "line": "Line_20",
+      "equipment_type": "Hydraulic Press",
+      "opc_node_id": "ns=2;s=Azure_20",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Finishing/Line_20/Machine_20"
+    },
+    "21": {
+      "asset_name": "Azure Machine 21",
+      "shop": "MachineShop",
+      "line": "Line_21",
+      "equipment_type": "Conveyor",
+      "opc_node_id": "ns=2;s=Azure_21",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/MachineShop/Line_21/Machine_21"
+    },
+    "22": {
+      "asset_name": "Azure Machine 22",
+      "shop": "Assembly",
+      "line": "Line_22",
+      "equipment_type": "CNC Machine",
+      "opc_node_id": "ns=2;s=Azure_22",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Assembly/Line_22/Machine_22"
+    },
+    "23": {
+      "asset_name": "Azure Machine 23",
+      "shop": "Stamping",
+      "line": "Line_23",
+      "equipment_type": "Hydraulic Press",
+      "opc_node_id": "ns=2;s=Azure_23",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Stamping/Line_23/Machine_23"
+    },
+    "24": {
+      "asset_name": "Azure Machine 24",
+      "shop": "Finishing",
+      "line": "Line_24",
+      "equipment_type": "Conveyor",
+      "opc_node_id": "ns=2;s=Azure_24",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Finishing/Line_24/Machine_24"
+    },
+    "25": {
+      "asset_name": "Azure Machine 25",
+      "shop": "MachineShop",
+      "line": "Line_25",
+      "equipment_type": "CNC Machine",
+      "opc_node_id": "ns=2;s=Azure_25",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/MachineShop/Line_25/Machine_25"
+    },
+    "26": {
+      "asset_name": "Azure Machine 26",
+      "shop": "Assembly",
+      "line": "Line_1",
+      "equipment_type": "Hydraulic Press",
+      "opc_node_id": "ns=2;s=Azure_26",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Assembly/Line_1/Machine_26"
+    },
+    "27": {
+      "asset_name": "Azure Machine 27",
+      "shop": "Stamping",
+      "line": "Line_2",
+      "equipment_type": "Conveyor",
+      "opc_node_id": "ns=2;s=Azure_27",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Stamping/Line_2/Machine_27"
+    },
+    "28": {
+      "asset_name": "Azure Machine 28",
+      "shop": "Finishing",
+      "line": "Line_3",
+      "equipment_type": "CNC Machine",
+      "opc_node_id": "ns=2;s=Azure_28",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Finishing/Line_3/Machine_28"
+    },
+    "29": {
+      "asset_name": "Azure Machine 29",
+      "shop": "MachineShop",
+      "line": "Line_4",
+      "equipment_type": "Hydraulic Press",
+      "opc_node_id": "ns=2;s=Azure_29",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/MachineShop/Line_4/Machine_29"
+    },
+    "30": {
+      "asset_name": "Azure Machine 30",
+      "shop": "Assembly",
+      "line": "Line_5",
+      "equipment_type": "Conveyor",
+      "opc_node_id": "ns=2;s=Azure_30",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Assembly/Line_5/Machine_30"
+    },
+    "31": {
+      "asset_name": "Azure Machine 31",
+      "shop": "Stamping",
+      "line": "Line_6",
+      "equipment_type": "CNC Machine",
+      "opc_node_id": "ns=2;s=Azure_31",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Stamping/Line_6/Machine_31"
+    },
+    "32": {
+      "asset_name": "Azure Machine 32",
+      "shop": "Finishing",
+      "line": "Line_7",
+      "equipment_type": "Hydraulic Press",
+      "opc_node_id": "ns=2;s=Azure_32",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Finishing/Line_7/Machine_32"
+    },
+    "33": {
+      "asset_name": "Azure Machine 33",
+      "shop": "MachineShop",
+      "line": "Line_8",
+      "equipment_type": "Conveyor",
+      "opc_node_id": "ns=2;s=Azure_33",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/MachineShop/Line_8/Machine_33"
+    },
+    "34": {
+      "asset_name": "Azure Machine 34",
+      "shop": "Assembly",
+      "line": "Line_9",
+      "equipment_type": "CNC Machine",
+      "opc_node_id": "ns=2;s=Azure_34",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Assembly/Line_9/Machine_34"
+    },
+    "35": {
+      "asset_name": "Azure Machine 35",
+      "shop": "Stamping",
+      "line": "Line_10",
+      "equipment_type": "Hydraulic Press",
+      "opc_node_id": "ns=2;s=Azure_35",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Stamping/Line_10/Machine_35"
+    },
+    "36": {
+      "asset_name": "Azure Machine 36",
+      "shop": "Finishing",
+      "line": "Line_11",
+      "equipment_type": "Conveyor",
+      "opc_node_id": "ns=2;s=Azure_36",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Finishing/Line_11/Machine_36"
+    },
+    "37": {
+      "asset_name": "Azure Machine 37",
+      "shop": "MachineShop",
+      "line": "Line_12",
+      "equipment_type": "CNC Machine",
+      "opc_node_id": "ns=2;s=Azure_37",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/MachineShop/Line_12/Machine_37"
+    },
+    "38": {
+      "asset_name": "Azure Machine 38",
+      "shop": "Assembly",
+      "line": "Line_13",
+      "equipment_type": "Hydraulic Press",
+      "opc_node_id": "ns=2;s=Azure_38",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Assembly/Line_13/Machine_38"
+    },
+    "39": {
+      "asset_name": "Azure Machine 39",
+      "shop": "Stamping",
+      "line": "Line_14",
+      "equipment_type": "Conveyor",
+      "opc_node_id": "ns=2;s=Azure_39",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Stamping/Line_14/Machine_39"
+    },
+    "40": {
+      "asset_name": "Azure Machine 40",
+      "shop": "Finishing",
+      "line": "Line_15",
+      "equipment_type": "CNC Machine",
+      "opc_node_id": "ns=2;s=Azure_40",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Finishing/Line_15/Machine_40"
+    },
+    "41": {
+      "asset_name": "Azure Machine 41",
+      "shop": "MachineShop",
+      "line": "Line_16",
+      "equipment_type": "Hydraulic Press",
+      "opc_node_id": "ns=2;s=Azure_41",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/MachineShop/Line_16/Machine_41"
+    },
+    "42": {
+      "asset_name": "Azure Machine 42",
+      "shop": "Assembly",
+      "line": "Line_17",
+      "equipment_type": "Conveyor",
+      "opc_node_id": "ns=2;s=Azure_42",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Assembly/Line_17/Machine_42"
+    },
+    "43": {
+      "asset_name": "Azure Machine 43",
+      "shop": "Stamping",
+      "line": "Line_18",
+      "equipment_type": "CNC Machine",
+      "opc_node_id": "ns=2;s=Azure_43",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Stamping/Line_18/Machine_43"
+    },
+    "44": {
+      "asset_name": "Azure Machine 44",
+      "shop": "Finishing",
+      "line": "Line_19",
+      "equipment_type": "Hydraulic Press",
+      "opc_node_id": "ns=2;s=Azure_44",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Finishing/Line_19/Machine_44"
+    },
+    "45": {
+      "asset_name": "Azure Machine 45",
+      "shop": "MachineShop",
+      "line": "Line_20",
+      "equipment_type": "Conveyor",
+      "opc_node_id": "ns=2;s=Azure_45",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/MachineShop/Line_20/Machine_45"
+    },
+    "46": {
+      "asset_name": "Azure Machine 46",
+      "shop": "Assembly",
+      "line": "Line_21",
+      "equipment_type": "CNC Machine",
+      "opc_node_id": "ns=2;s=Azure_46",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Assembly/Line_21/Machine_46"
+    },
+    "47": {
+      "asset_name": "Azure Machine 47",
+      "shop": "Stamping",
+      "line": "Line_22",
+      "equipment_type": "Hydraulic Press",
+      "opc_node_id": "ns=2;s=Azure_47",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Stamping/Line_22/Machine_47"
+    },
+    "48": {
+      "asset_name": "Azure Machine 48",
+      "shop": "Finishing",
+      "line": "Line_23",
+      "equipment_type": "Conveyor",
+      "opc_node_id": "ns=2;s=Azure_48",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Finishing/Line_23/Machine_48"
+    },
+    "49": {
+      "asset_name": "Azure Machine 49",
+      "shop": "MachineShop",
+      "line": "Line_24",
+      "equipment_type": "CNC Machine",
+      "opc_node_id": "ns=2;s=Azure_49",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/MachineShop/Line_24/Machine_49"
+    },
+    "50": {
+      "asset_name": "Azure Machine 50",
+      "shop": "Assembly",
+      "line": "Line_25",
+      "equipment_type": "Hydraulic Press",
+      "opc_node_id": "ns=2;s=Azure_50",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Assembly/Line_25/Machine_50"
+    },
+    "51": {
+      "asset_name": "Azure Machine 51",
+      "shop": "Stamping",
+      "line": "Line_1",
+      "equipment_type": "Conveyor",
+      "opc_node_id": "ns=2;s=Azure_51",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Stamping/Line_1/Machine_51"
+    },
+    "52": {
+      "asset_name": "Azure Machine 52",
+      "shop": "Finishing",
+      "line": "Line_2",
+      "equipment_type": "CNC Machine",
+      "opc_node_id": "ns=2;s=Azure_52",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Finishing/Line_2/Machine_52"
+    },
+    "53": {
+      "asset_name": "Azure Machine 53",
+      "shop": "MachineShop",
+      "line": "Line_3",
+      "equipment_type": "Hydraulic Press",
+      "opc_node_id": "ns=2;s=Azure_53",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/MachineShop/Line_3/Machine_53"
+    },
+    "54": {
+      "asset_name": "Azure Machine 54",
+      "shop": "Assembly",
+      "line": "Line_4",
+      "equipment_type": "Conveyor",
+      "opc_node_id": "ns=2;s=Azure_54",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Assembly/Line_4/Machine_54"
+    },
+    "55": {
+      "asset_name": "Azure Machine 55",
+      "shop": "Stamping",
+      "line": "Line_5",
+      "equipment_type": "CNC Machine",
+      "opc_node_id": "ns=2;s=Azure_55",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Stamping/Line_5/Machine_55"
+    },
+    "56": {
+      "asset_name": "Azure Machine 56",
+      "shop": "Finishing",
+      "line": "Line_6",
+      "equipment_type": "Hydraulic Press",
+      "opc_node_id": "ns=2;s=Azure_56",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Finishing/Line_6/Machine_56"
+    },
+    "57": {
+      "asset_name": "Azure Machine 57",
+      "shop": "MachineShop",
+      "line": "Line_7",
+      "equipment_type": "Conveyor",
+      "opc_node_id": "ns=2;s=Azure_57",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/MachineShop/Line_7/Machine_57"
+    },
+    "58": {
+      "asset_name": "Azure Machine 58",
+      "shop": "Assembly",
+      "line": "Line_8",
+      "equipment_type": "CNC Machine",
+      "opc_node_id": "ns=2;s=Azure_58",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Assembly/Line_8/Machine_58"
+    },
+    "59": {
+      "asset_name": "Azure Machine 59",
+      "shop": "Stamping",
+      "line": "Line_9",
+      "equipment_type": "Hydraulic Press",
+      "opc_node_id": "ns=2;s=Azure_59",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Stamping/Line_9/Machine_59"
+    },
+    "60": {
+      "asset_name": "Azure Machine 60",
+      "shop": "Finishing",
+      "line": "Line_10",
+      "equipment_type": "Conveyor",
+      "opc_node_id": "ns=2;s=Azure_60",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Finishing/Line_10/Machine_60"
+    },
+    "61": {
+      "asset_name": "Azure Machine 61",
+      "shop": "MachineShop",
+      "line": "Line_11",
+      "equipment_type": "CNC Machine",
+      "opc_node_id": "ns=2;s=Azure_61",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/MachineShop/Line_11/Machine_61"
+    },
+    "62": {
+      "asset_name": "Azure Machine 62",
+      "shop": "Assembly",
+      "line": "Line_12",
+      "equipment_type": "Hydraulic Press",
+      "opc_node_id": "ns=2;s=Azure_62",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Assembly/Line_12/Machine_62"
+    },
+    "63": {
+      "asset_name": "Azure Machine 63",
+      "shop": "Stamping",
+      "line": "Line_13",
+      "equipment_type": "Conveyor",
+      "opc_node_id": "ns=2;s=Azure_63",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Stamping/Line_13/Machine_63"
+    },
+    "64": {
+      "asset_name": "Azure Machine 64",
+      "shop": "Finishing",
+      "line": "Line_14",
+      "equipment_type": "CNC Machine",
+      "opc_node_id": "ns=2;s=Azure_64",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Finishing/Line_14/Machine_64"
+    },
+    "65": {
+      "asset_name": "Azure Machine 65",
+      "shop": "MachineShop",
+      "line": "Line_15",
+      "equipment_type": "Hydraulic Press",
+      "opc_node_id": "ns=2;s=Azure_65",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/MachineShop/Line_15/Machine_65"
+    },
+    "66": {
+      "asset_name": "Azure Machine 66",
+      "shop": "Assembly",
+      "line": "Line_16",
+      "equipment_type": "Conveyor",
+      "opc_node_id": "ns=2;s=Azure_66",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Assembly/Line_16/Machine_66"
+    },
+    "67": {
+      "asset_name": "Azure Machine 67",
+      "shop": "Stamping",
+      "line": "Line_17",
+      "equipment_type": "CNC Machine",
+      "opc_node_id": "ns=2;s=Azure_67",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Stamping/Line_17/Machine_67"
+    },
+    "68": {
+      "asset_name": "Azure Machine 68",
+      "shop": "Finishing",
+      "line": "Line_18",
+      "equipment_type": "Hydraulic Press",
+      "opc_node_id": "ns=2;s=Azure_68",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Finishing/Line_18/Machine_68"
+    },
+    "69": {
+      "asset_name": "Azure Machine 69",
+      "shop": "MachineShop",
+      "line": "Line_19",
+      "equipment_type": "Conveyor",
+      "opc_node_id": "ns=2;s=Azure_69",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/MachineShop/Line_19/Machine_69"
+    },
+    "70": {
+      "asset_name": "Azure Machine 70",
+      "shop": "Assembly",
+      "line": "Line_20",
+      "equipment_type": "CNC Machine",
+      "opc_node_id": "ns=2;s=Azure_70",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Assembly/Line_20/Machine_70"
+    },
+    "71": {
+      "asset_name": "Azure Machine 71",
+      "shop": "Stamping",
+      "line": "Line_21",
+      "equipment_type": "Hydraulic Press",
+      "opc_node_id": "ns=2;s=Azure_71",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Stamping/Line_21/Machine_71"
+    },
+    "72": {
+      "asset_name": "Azure Machine 72",
+      "shop": "Finishing",
+      "line": "Line_22",
+      "equipment_type": "Conveyor",
+      "opc_node_id": "ns=2;s=Azure_72",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Finishing/Line_22/Machine_72"
+    },
+    "73": {
+      "asset_name": "Azure Machine 73",
+      "shop": "MachineShop",
+      "line": "Line_23",
+      "equipment_type": "CNC Machine",
+      "opc_node_id": "ns=2;s=Azure_73",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/MachineShop/Line_23/Machine_73"
+    },
+    "74": {
+      "asset_name": "Azure Machine 74",
+      "shop": "Assembly",
+      "line": "Line_24",
+      "equipment_type": "Hydraulic Press",
+      "opc_node_id": "ns=2;s=Azure_74",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Assembly/Line_24/Machine_74"
+    },
+    "75": {
+      "asset_name": "Azure Machine 75",
+      "shop": "Stamping",
+      "line": "Line_25",
+      "equipment_type": "Conveyor",
+      "opc_node_id": "ns=2;s=Azure_75",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Stamping/Line_25/Machine_75"
+    },
+    "76": {
+      "asset_name": "Azure Machine 76",
+      "shop": "Finishing",
+      "line": "Line_1",
+      "equipment_type": "CNC Machine",
+      "opc_node_id": "ns=2;s=Azure_76",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Finishing/Line_1/Machine_76"
+    },
+    "77": {
+      "asset_name": "Azure Machine 77",
+      "shop": "MachineShop",
+      "line": "Line_2",
+      "equipment_type": "Hydraulic Press",
+      "opc_node_id": "ns=2;s=Azure_77",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/MachineShop/Line_2/Machine_77"
+    },
+    "78": {
+      "asset_name": "Azure Machine 78",
+      "shop": "Assembly",
+      "line": "Line_3",
+      "equipment_type": "Conveyor",
+      "opc_node_id": "ns=2;s=Azure_78",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Assembly/Line_3/Machine_78"
+    },
+    "79": {
+      "asset_name": "Azure Machine 79",
+      "shop": "Stamping",
+      "line": "Line_4",
+      "equipment_type": "CNC Machine",
+      "opc_node_id": "ns=2;s=Azure_79",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Stamping/Line_4/Machine_79"
+    },
+    "80": {
+      "asset_name": "Azure Machine 80",
+      "shop": "Finishing",
+      "line": "Line_5",
+      "equipment_type": "Hydraulic Press",
+      "opc_node_id": "ns=2;s=Azure_80",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Finishing/Line_5/Machine_80"
+    },
+    "81": {
+      "asset_name": "Azure Machine 81",
+      "shop": "MachineShop",
+      "line": "Line_6",
+      "equipment_type": "Conveyor",
+      "opc_node_id": "ns=2;s=Azure_81",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/MachineShop/Line_6/Machine_81"
+    },
+    "82": {
+      "asset_name": "Azure Machine 82",
+      "shop": "Assembly",
+      "line": "Line_7",
+      "equipment_type": "CNC Machine",
+      "opc_node_id": "ns=2;s=Azure_82",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Assembly/Line_7/Machine_82"
+    },
+    "83": {
+      "asset_name": "Azure Machine 83",
+      "shop": "Stamping",
+      "line": "Line_8",
+      "equipment_type": "Hydraulic Press",
+      "opc_node_id": "ns=2;s=Azure_83",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Stamping/Line_8/Machine_83"
+    },
+    "84": {
+      "asset_name": "Azure Machine 84",
+      "shop": "Finishing",
+      "line": "Line_9",
+      "equipment_type": "Conveyor",
+      "opc_node_id": "ns=2;s=Azure_84",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Finishing/Line_9/Machine_84"
+    },
+    "85": {
+      "asset_name": "Azure Machine 85",
+      "shop": "MachineShop",
+      "line": "Line_10",
+      "equipment_type": "CNC Machine",
+      "opc_node_id": "ns=2;s=Azure_85",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/MachineShop/Line_10/Machine_85"
+    },
+    "86": {
+      "asset_name": "Azure Machine 86",
+      "shop": "Assembly",
+      "line": "Line_11",
+      "equipment_type": "Hydraulic Press",
+      "opc_node_id": "ns=2;s=Azure_86",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Assembly/Line_11/Machine_86"
+    },
+    "87": {
+      "asset_name": "Azure Machine 87",
+      "shop": "Stamping",
+      "line": "Line_12",
+      "equipment_type": "Conveyor",
+      "opc_node_id": "ns=2;s=Azure_87",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Stamping/Line_12/Machine_87"
+    },
+    "88": {
+      "asset_name": "Azure Machine 88",
+      "shop": "Finishing",
+      "line": "Line_13",
+      "equipment_type": "CNC Machine",
+      "opc_node_id": "ns=2;s=Azure_88",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Finishing/Line_13/Machine_88"
+    },
+    "89": {
+      "asset_name": "Azure Machine 89",
+      "shop": "MachineShop",
+      "line": "Line_14",
+      "equipment_type": "Hydraulic Press",
+      "opc_node_id": "ns=2;s=Azure_89",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/MachineShop/Line_14/Machine_89"
+    },
+    "90": {
+      "asset_name": "Azure Machine 90",
+      "shop": "Assembly",
+      "line": "Line_15",
+      "equipment_type": "Conveyor",
+      "opc_node_id": "ns=2;s=Azure_90",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Assembly/Line_15/Machine_90"
+    },
+    "91": {
+      "asset_name": "Azure Machine 91",
+      "shop": "Stamping",
+      "line": "Line_16",
+      "equipment_type": "CNC Machine",
+      "opc_node_id": "ns=2;s=Azure_91",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Stamping/Line_16/Machine_91"
+    },
+    "92": {
+      "asset_name": "Azure Machine 92",
+      "shop": "Finishing",
+      "line": "Line_17",
+      "equipment_type": "Hydraulic Press",
+      "opc_node_id": "ns=2;s=Azure_92",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Finishing/Line_17/Machine_92"
+    },
+    "93": {
+      "asset_name": "Azure Machine 93",
+      "shop": "MachineShop",
+      "line": "Line_18",
+      "equipment_type": "Conveyor",
+      "opc_node_id": "ns=2;s=Azure_93",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/MachineShop/Line_18/Machine_93"
+    },
+    "94": {
+      "asset_name": "Azure Machine 94",
+      "shop": "Assembly",
+      "line": "Line_19",
+      "equipment_type": "CNC Machine",
+      "opc_node_id": "ns=2;s=Azure_94",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Assembly/Line_19/Machine_94"
+    },
+    "95": {
+      "asset_name": "Azure Machine 95",
+      "shop": "Stamping",
+      "line": "Line_20",
+      "equipment_type": "Hydraulic Press",
+      "opc_node_id": "ns=2;s=Azure_95",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Stamping/Line_20/Machine_95"
+    },
+    "96": {
+      "asset_name": "Azure Machine 96",
+      "shop": "Finishing",
+      "line": "Line_21",
+      "equipment_type": "Conveyor",
+      "opc_node_id": "ns=2;s=Azure_96",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Finishing/Line_21/Machine_96"
+    },
+    "97": {
+      "asset_name": "Azure Machine 97",
+      "shop": "MachineShop",
+      "line": "Line_22",
+      "equipment_type": "CNC Machine",
+      "opc_node_id": "ns=2;s=Azure_97",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/MachineShop/Line_22/Machine_97"
+    },
+    "98": {
+      "asset_name": "Azure Machine 98",
+      "shop": "Assembly",
+      "line": "Line_23",
+      "equipment_type": "Hydraulic Press",
+      "opc_node_id": "ns=2;s=Azure_98",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Assembly/Line_23/Machine_98"
+    },
+    "99": {
+      "asset_name": "Azure Machine 99",
+      "shop": "Stamping",
+      "line": "Line_24",
+      "equipment_type": "Conveyor",
+      "opc_node_id": "ns=2;s=Azure_99",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Stamping/Line_24/Machine_99"
+    },
+    "100": {
+      "asset_name": "Azure Machine 100",
+      "shop": "Finishing",
+      "line": "Line_25",
+      "equipment_type": "CNC Machine",
+      "opc_node_id": "ns=2;s=Azure_100",
+      "criticality": "medium",
+      "uns_path": "PlantAGI/Finishing/Line_25/Machine_100"
     }
+  },
+  "alert_thresholds": {
+    "CV-100": {
+      "watch_fp": 0.35,
+      "warning_fp": 0.6,
+      "critical_fp": 0.82,
+      "watch_health_max": 65,
+      "warning_health_max": 50,
+      "critical_health_max": 30,
+      "confirmation_cycles": {
+        "watch": 8,
+        "warning": 20,
+        "critical": 40
+      }
+    },
+    "LA-003": {
+      "watch_fp": 0.5,
+      "warning_fp": 0.72,
+      "critical_fp": 0.9,
+      "watch_health_max": 65,
+      "warning_health_max": 50,
+      "critical_health_max": 35,
+      "confirmation_cycles": {
+        "watch": 15,
+        "warning": 35,
+        "critical": 60
+      }
+    }
+  },
+  "metadata": {
+    "version": "1.0.0",
+    "plant": "PDM-PILOT Industrial Facility",
+    "last_updated": "2026-02-15T00:00:00Z",
+    "schema_version": "golden-pipeline-v1"
+  }
 }

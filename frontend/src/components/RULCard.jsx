@@ -1,13 +1,17 @@
-import React, { useMemo } from 'react';
-import { AlertCircle, CheckCircle, Clock, TrendingDown, Activity, Calendar, Percent, TriangleAlert } from 'lucide-react';
-import { Card, CardContent, Typography, Box, Button, Chip, Stack, Grid, Skeleton } from '@mui/material';
+import React, { useMemo, useState } from 'react';
+import { AlertCircle, CheckCircle, Clock, TrendingDown, Activity, Calendar, Percent, TriangleAlert, ChevronDown, ChevronUp } from 'lucide-react';
+import { Card, CardContent, Typography, Box, Button, Chip, Stack, Grid, Skeleton, Collapse } from '@mui/material';
+import ExplanationCard from './ExplanationCard';
 
 /**
  * RULCard Component (High-Urgency Diagnostic Edition)
  * 
  * Displays detailed Remaining Useful Life analytics with industrial precision.
+ * Optional: rulLower80, rulUpper80, confidence (HIGH|MEDIUM|LOW), inTrainingDistribution.
  */
-function RULCard({ rul, maxRul = 90, failureProbability = 0, degradationScore = 0, onSchedule }) {
+function RULCard({ rul, maxRul = 90, failureProbability = 0, degradationScore = 0, onSchedule, rulLower80, rulUpper80, confidence, inTrainingDistribution = true, explanations = [], healthScore, machineName }) {
+    const [whyExpanded, setWhyExpanded] = useState(false);
+    const topExplanation = Array.isArray(explanations) && explanations.length > 0 ? explanations[0] : null;
     // Handle missing data
     if (rul === undefined || rul === null) {
         return (
@@ -31,10 +35,13 @@ function RULCard({ rul, maxRul = 90, failureProbability = 0, degradationScore = 
     const failProb = Math.min(1, Math.max(0, failureProbability)) * 100;
     const degradation = Math.min(1, Math.max(0, degradationScore)) * 100;
 
-    // Confidence interval (±15% typical for bearing prognostics)
+    // Confidence interval: use provided 80% band or fallback ±15%
+    const hasBand = rulLower80 != null && rulUpper80 != null && typeof rulLower80 === 'number' && typeof rulUpper80 === 'number';
     const confidenceMargin = rulDays * 0.15;
-    const rulLower = Math.max(0, rulDays - confidenceMargin);
-    const rulUpper = rulDays + confidenceMargin;
+    const rulLower = hasBand ? Math.max(0, rulLower80) : Math.max(0, rulDays - confidenceMargin);
+    const rulUpper = hasBand ? rulUpper80 : rulDays + confidenceMargin;
+    const confidenceLevel = (confidence || '').toUpperCase();
+    const confidenceColor = confidenceLevel === 'HIGH' ? '#10b981' : confidenceLevel === 'LOW' ? '#ef4444' : confidenceLevel === 'MEDIUM' ? '#f59e0b' : 'inherit';
 
     // Predicted Failure Date
     const failureDate = new Date();
@@ -94,6 +101,12 @@ function RULCard({ rul, maxRul = 90, failureProbability = 0, degradationScore = 
 
     return (
         <Card variant="outlined" sx={{ height: '100%', borderRadius: 2, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            {inTrainingDistribution === false && (
+                <Box sx={{ px: 2, py: 1, bgcolor: '#fef3c7', borderBottom: 1, borderColor: '#f59e0b', display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <TriangleAlert size={16} className="text-amber-600" />
+                    <Typography variant="caption" fontWeight="bold" sx={{ color: '#b45309' }}>Operating outside trained conditions</Typography>
+                </Box>
+            )}
             {/* Header */}
             <Box sx={{ px: 2, py: 1.5, background: style.headerBg, color: 'white' }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -145,6 +158,9 @@ function RULCard({ rul, maxRul = 90, failureProbability = 0, degradationScore = 
                             </Typography>
                             <Typography variant="caption" sx={{ mt: 0.5, color: 'text.secondary', fontWeight: '500' }}>
                                 Predicted Failure: <Box component="span" sx={{ color: 'text.primary', fontWeight: 'bold' }}>{dateString}</Box>
+                            </Typography>
+                            <Typography variant="caption" sx={{ mt: 0.25, fontSize: '0.7rem', fontWeight: '500' }} component="span" style={{ color: confidenceColor }}>
+                                80% confident: {rulLower.toFixed(0)}–{rulUpper.toFixed(0)} days
                             </Typography>
                         </Stack>
                     </Box>
@@ -270,6 +286,37 @@ function RULCard({ rul, maxRul = 90, failureProbability = 0, degradationScore = 
                         <Typography variant="caption" color="warning.main" fontWeight="bold" fontSize="0.6rem">7-30d</Typography>
                         <Typography variant="caption" color="success.main" fontWeight="bold" fontSize="0.6rem">30d+</Typography>
                     </Box>
+                </Box>
+
+                {/* Why? collapsed section: top driver + expand for full ExplanationCard */}
+                <Box sx={{ mt: 1 }}>
+                    <Button
+                        fullWidth
+                        size="small"
+                        variant="outlined"
+                        onClick={() => setWhyExpanded((e) => !e)}
+                        endIcon={whyExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                        sx={{ justifyContent: 'space-between', textTransform: 'none', fontWeight: 600 }}
+                    >
+                        Why?
+                    </Button>
+                    {topExplanation && !whyExpanded && (
+                        <Stack direction="row" spacing={0.5} alignItems="center" sx={{ mt: 0.5 }}>
+                            <TriangleAlert size={14} color="#d97706" />
+                            <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 500 }}>
+                                Primary driver: {topExplanation.display_name || topExplanation.feature || '—'}
+                            </Typography>
+                        </Stack>
+                    )}
+                    <Collapse in={whyExpanded}>
+                        <Box sx={{ mt: 1.5 }}>
+                            <ExplanationCard
+                                explanations={explanations}
+                                healthScore={healthScore}
+                                machineName={machineName}
+                            />
+                        </Box>
+                    </Collapse>
                 </Box>
 
                 {/* Critical Action Button - Maintenance */}

@@ -71,6 +71,7 @@ pytest_cache/
 *.feather
 data/
 !data/.gitkeep
+data/*.db
 
 # Exceptions for specific config files
 !package.json

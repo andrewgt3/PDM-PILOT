@@ -5,33 +5,46 @@ Redis Stream Publisher for GAIA Predictive Maintenance
 Simulates real-time sensor data streaming by:
 - Loading training_data.pkl
 - Publishing JSON records to Redis channel at 10Hz
+- Optionally publishing to MQTT via UNS (ISA-95 topic hierarchy)
 
 Author: Senior Backend Engineer
 """
 
-import os
 import json
+import logging
+import os
 import time
-import redis
-import pandas as pd
+
 import numpy as np
+import pandas as pd
+import redis
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
 
+# MQTT is optional; use config for toggle. UNS mapper for ISA-95 topic hierarchy.
+try:
+    from config import get_settings
+    from mqtt_client import MQTTPublisher
+    from uns_mapper import UNSMapper
+except ImportError:
+    get_settings = None
+    MQTTPublisher = None
+    UNSMapper = None
+
+logger = logging.getLogger("stream_publisher")
+
 
 # =============================================================================
-# CONFIGURATION
+# CONFIGURATION (Redis and rate from config)
 # =============================================================================
-REDIS_HOST = os.getenv('REDIS_HOST', 'localhost')
-REDIS_PORT = int(os.getenv('REDIS_PORT', 6379))
-REDIS_PASSWORD = os.getenv('REDIS_PASSWORD', None)
-REDIS_CHANNEL = 'sensor_stream'
-
-PUBLISH_RATE_HZ = 10.0  # 10 messages per second
-PUBLISH_INTERVAL = 1.0 / PUBLISH_RATE_HZ  # 0.1 seconds
+from config import get_settings
+_settings = get_settings()
+# Set to "1" or "true" to start ABB + Siemens S7 adapters in background threads
+# alongside the publisher (all publish to sensor_stream).
+RUN_LIVE_ADAPTERS = os.getenv('RUN_LIVE_ADAPTERS', '').lower() in ('1', 'true', 'yes')
 
 # =============================================================================
 # AUTOMOTIVE PLANT TOPOLOGY
@@ -87,12 +100,14 @@ FLEET_TOPOLOGY = [
 
 
 def get_redis_connection():
-    """Create Redis connection."""
+    """Create Redis connection from config."""
+    s = get_settings()
+    pw = s.redis.password.get_secret_value() if s.redis.password else None
     return redis.Redis(
-        host=REDIS_HOST,
-        port=REDIS_PORT,
-        password=REDIS_PASSWORD,
-        decode_responses=True
+        host=s.redis.host,
+        port=s.redis.port,
+        password=pw,
+        decode_responses=True,
     )
 
 
@@ -163,10 +178,37 @@ def create_json_payload(row: pd.Series, index: int, healthy_pool: pd.DataFrame, 
     return payload
 
 
+def _run_abb_adapter_thread():
+    """Run ABB adapter in a background thread (same as: python abb_adapter.py)."""
+    import asyncio
+    import abb_adapter
+    asyncio.run(abb_adapter.main())
+
+
+def _run_siemens_adapter_thread():
+    """Run Siemens S7 adapter in a background thread (same as: python siemens_s7_adapter.py)."""
+    from siemens_s7_adapter import SiemensS7Adapter
+    SiemensS7Adapter().run_forever()
+
+
+def start_live_adapters():
+    """
+    Start ABB and Siemens S7 adapters alongside the publisher.
+    Call this at startup to have both PLC adapters publishing to sensor_stream
+    in background threads (same channel as this publisher).
+    """
+    import threading
+    t_abb = threading.Thread(target=_run_abb_adapter_thread, name="ABBAdapter", daemon=True)
+    t_siemens = threading.Thread(target=_run_siemens_adapter_thread, name="SiemensS7Adapter", daemon=True)
+    t_abb.start()
+    t_siemens.start()
+    print("  ABB adapter (OPC-UA) and Siemens S7 adapter (snap7) started in background.")
+
+
 def publish_stream(loop_forever: bool = True):
     """
     Main publishing loop.
-    
+
     Args:
         loop_forever: If True, continuously loop through data
     """
@@ -175,13 +217,19 @@ def publish_stream(loop_forever: bool = True):
     print("Redis Pub/Sub Sensor Data Simulator")
     print("=" * 70)
     
+    # Optional: start ABB + Siemens S7 adapters (same interface as running abb_adapter.py + siemens_s7_adapter.py)
+    if RUN_LIVE_ADAPTERS:
+        start_live_adapters()
+
     # Connect to Redis
     try:
         r = get_redis_connection()
         r.ping()
-        print(f"\n✓ Connected to Redis at {REDIS_HOST}:{REDIS_PORT}")
-        print(f"  Channel: {REDIS_CHANNEL}")
-        print(f"  Publish Rate: {PUBLISH_RATE_HZ} Hz ({PUBLISH_INTERVAL*1000:.0f}ms interval)")
+        s = get_settings()
+        interval = 1.0 / s.redis.publish_rate_hz
+        print(f"\n✓ Connected to Redis at {s.redis.host}:{s.redis.port}")
+        print(f"  Channel: {s.redis.redis_channel}")
+        print(f"  Publish Rate: {s.redis.publish_rate_hz} Hz ({interval*1000:.0f}ms interval)")
     except redis.ConnectionError as e:
         print(f"\n❌ Redis connection failed: {e}")
         print("\nPlease ensure Redis is running:")
@@ -189,7 +237,38 @@ def publish_stream(loop_forever: bool = True):
         print("  or")
         print("  redis-server")
         return
-    
+
+    # Optional MQTT publisher (additive to Redis; internal API still consumes from Redis)
+    mqtt_publisher = None
+    mqtt_enabled = False
+    if get_settings is not None and MQTTPublisher is not None:
+        mqtt_cfg = get_settings().mqtt
+        mqtt_enabled = mqtt_cfg.publish_enabled
+        if mqtt_enabled:
+            try:
+                mqtt_publisher = MQTTPublisher()
+                if mqtt_publisher.connect():
+                    print(f"MQTT connected to {mqtt_cfg.broker_host}:{mqtt_cfg.broker_port}")
+                else:
+                    print("⚠ MQTT broker unavailable; continuing without MQTT publish")
+                    mqtt_publisher = None
+            except Exception as e:
+                logger.warning("MQTT setup failed: %s; continuing without MQTT", e)
+                mqtt_publisher = None
+        else:
+            print("  MQTT publish disabled (MQTT_PUBLISH_ENABLED=false)")
+
+    # UNS mapper for ISA-95 topic hierarchy (machines -> enterprise/site/area/cell/asset/category/metric)
+    uns_mapper = None
+    if mqtt_publisher and mqtt_publisher.is_connected and UNSMapper is not None:
+        try:
+            uns_mapper = UNSMapper(config_path="pipeline/station_config.json")
+        except Exception as e:
+            logger.warning("UNS mapper init failed: %s; MQTT will use flat topics", e)
+
+    # Confirm both transports before starting loop
+    print("\n  Transports: Redis (active)" + (" | MQTT (active)" if mqtt_publisher and mqtt_publisher.is_connected else " | MQTT (off)"))
+
     # Load data
     healthy_pool, faulty_pool = load_sensor_data()
     n_samples = len(healthy_pool) + len(faulty_pool)
@@ -209,10 +288,23 @@ def publish_stream(loop_forever: bool = True):
             # Generate payload (uses idx to select machine and determine health profile)
             payload = create_json_payload(None, idx, healthy_pool, faulty_pool)
             
-            # Publish to Redis channel
+            # Publish to Redis channel (internal API consumes from here)
             json_payload = json.dumps(payload)
-            r.publish(REDIS_CHANNEL, json_payload)
-            
+            r.publish(get_settings().redis.redis_channel, json_payload)
+
+            # Parallel MQTT publish via UNS (ISA-95 topic hierarchy); non-blocking, failures logged only
+            if mqtt_publisher and mqtt_publisher.is_connected:
+                try:
+                    machine_id = payload.get("machine_id", "unknown")
+                    if uns_mapper is not None:
+                        for topic, value, retain in uns_mapper.explode(machine_id, payload):
+                            mqtt_publisher.publish(topic, value, qos=1, retain=retain)
+                    else:
+                        topic = f"machines/{machine_id}/telemetry"
+                        mqtt_publisher.publish(topic, payload, qos=1, retain=False)
+                except Exception as e:
+                    logger.warning("MQTT publish failed (non-blocking): %s", e)
+
             messages_sent += 1
             idx += 1
             elapsed = time.time() - start_time
@@ -227,10 +319,15 @@ def publish_stream(loop_forever: bool = True):
                       f"Failure: {payload['machine_failure']}")
             
             # Rate limiting
-            time.sleep(PUBLISH_INTERVAL)
+            time.sleep(1.0 / get_settings().redis.publish_rate_hz)
 
             
     except KeyboardInterrupt:
+        if mqtt_publisher is not None:
+            try:
+                mqtt_publisher.disconnect()
+            except Exception:
+                pass
         print(f"\n\n" + "-" * 70)
         print("STREAMING STOPPED")
         print("-" * 70)

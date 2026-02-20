@@ -25,6 +25,8 @@ from collections import deque
 from pydantic import BaseModel, Field, ValidationError
 
 from config import get_settings
+from edge.offline_buffer import OfflineBuffer
+from edge.replay_service import ReplayService
 
 # Load settings
 settings = get_settings()
@@ -331,7 +333,7 @@ async def main():
     print("=" * 70)
 
     r = get_redis_connection()
-    
+
     # Initialize authenticated API client (optional - for HTTP push)
     api_client = None
     if API_USERNAME and API_PASSWORD:
@@ -341,13 +343,34 @@ async def main():
             print("✓ Authenticated with Gaia API")
         except Exception as e:
             print(f"⚠ API authentication failed: {e}. Using Redis only.")
-    
+
+    # Offline buffer and replay (when Redis/upstream unreachable)
+    offline_buffer = None
+    replay_service = None
+    if settings.edge.offline_buffer_enabled:
+        offline_buffer = OfflineBuffer(db_path=settings.edge.offline_buffer_path)
+        def _publish_for_replay(payload_dict: dict) -> None:
+            r.publish(REDIS_CHANNEL, json.dumps(payload_dict))
+            if api_client:
+                if not api_client.push_data(payload_dict):
+                    raise RuntimeError("API push_data failed")
+        replay_service = ReplayService(
+            offline_buffer,
+            _publish_for_replay,
+            interval_seconds=settings.edge.offline_replay_interval_seconds,
+            purge_days=settings.edge.offline_buffer_purge_days,
+        )
+        replay_service.is_online = True
+
     # Retry Loop: Keep trying to connect if PLC is offline
     while True:
         try:
             client = Client(url=OPC_SERVER_URL)
             async with client:
                 print(f"✓ Connected to PLC at {OPC_SERVER_URL}")
+                if replay_service is not None:
+                    replay_service.is_online = True
+                    replay_service.start_replay_loop()
                 
                 # Get Namespace Index
                 idx = await client.get_namespace_index(NAMESPACE_URI)
@@ -417,12 +440,31 @@ async def main():
                                 )
                                 continue  # Skip to next machine
                             
-                            # Publish to Redis
-                            r.publish(REDIS_CHANNEL, json.dumps(payload_dict))
-                            
-                            # Also push via HTTP API if configured
-                            if api_client:
-                                api_client.push_data(payload_dict)
+                            # Publish to Redis (and optionally API); on failure buffer offline
+                            try:
+                                r.publish(REDIS_CHANNEL, json.dumps(payload_dict))
+                                if api_client:
+                                    api_client.push_data(payload_dict)
+                                if replay_service is not None:
+                                    replay_service.start_replay_loop()
+                            except Exception as pub_err:
+                                if offline_buffer is not None and replay_service is not None:
+                                    replay_service.is_online = False
+                                    ts = payload_dict.get("timestamp", datetime.now(timezone.utc).isoformat())
+                                    row_id = offline_buffer.write(
+                                        payload_dict.get("machine_id", "unknown"),
+                                        ts,
+                                        payload_dict,
+                                        "opc_ua",
+                                    )
+                                    n = offline_buffer.pending_count()
+                                    logger.warning(
+                                        "Offline — buffered reading %s. Pending count: %s",
+                                        row_id,
+                                        n,
+                                    )
+                                else:
+                                    raise pub_err
                         
                         except Exception as e:
                             logger.error(f"Error reading OPC UA tags for {m['id']}: {e}")

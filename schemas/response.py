@@ -145,7 +145,7 @@ class APIResponse(BaseModel, Generic[T]):
         return cls(data=data, meta=meta, error=None)
     
     @classmethod
-    def error(
+    def from_error(
         cls,
         message: str,
         request_id: str | None = None,

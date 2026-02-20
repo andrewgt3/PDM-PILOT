@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS sensor_readings (
     tool_wear FLOAT,
     vibration_raw JSONB,
     created_at TIMESTAMPTZ DEFAULT NOW(),
+    tenant_id VARCHAR(64) NOT NULL DEFAULT 'default',
     
     -- Indexes for common queries
     CONSTRAINT sensor_readings_machine_timestamp_idx 
@@ -73,6 +74,12 @@ CREATE INDEX IF NOT EXISTS idx_sensor_readings_machine_id
 
 CREATE INDEX IF NOT EXISTS idx_sensor_readings_machine_time 
     ON sensor_readings (machine_id, timestamp DESC);
+
+CREATE INDEX IF NOT EXISTS idx_sensor_readings_tenant 
+    ON sensor_readings (tenant_id);
+
+CREATE INDEX IF NOT EXISTS idx_readings_tenant_machine 
+    ON sensor_readings (tenant_id, machine_id);
 """
 
 # Table 2: Computed CWRU features (26 features + prediction)
@@ -122,6 +129,7 @@ CREATE TABLE IF NOT EXISTS cwru_features (
     failure_class INT,
     
     created_at TIMESTAMPTZ DEFAULT NOW(),
+    tenant_id VARCHAR(64) NOT NULL DEFAULT 'default',
     
     -- Indexes
     CONSTRAINT cwru_features_machine_timestamp_idx 
@@ -140,6 +148,12 @@ CREATE INDEX IF NOT EXISTS idx_cwru_features_failure
 
 CREATE INDEX IF NOT EXISTS idx_cwru_features_machine_time 
     ON cwru_features (machine_id, timestamp DESC);
+
+CREATE INDEX IF NOT EXISTS idx_cwru_features_tenant 
+    ON cwru_features (tenant_id);
+
+CREATE INDEX IF NOT EXISTS idx_cwru_tenant_machine 
+    ON cwru_features (tenant_id, machine_id);
 """
 
 # Additional table for model metadata

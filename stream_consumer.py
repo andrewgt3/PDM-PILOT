@@ -17,10 +17,13 @@ Refactored for:
 Author: Senior Backend Engineer
 """
 
+import os
 import signal
 import sys
 import json
+import threading
 import time
+from pathlib import Path
 import redis
 import psycopg2
 from psycopg2 import extras, OperationalError
@@ -50,10 +53,85 @@ settings = get_settings()
 
 REDIS_CHANNEL = 'sensor_stream'
 BATCH_SIZE = 100
+# Optional: when set, schedule a profile run 1 hour after first message from each machine_id
+PROFILE_TRIGGER_API_URL = os.getenv("PROFILE_TRIGGER_API_URL", "").strip()
+PROFILE_DELAY_SECONDS = 3600  # 1 hour of data collection before profiling
+# Prefect: when set, trigger new-machine-onboarding flow on first-seen machine_id
+PREFECT_API_URL = os.getenv("PREFECT_API_URL", "").strip()
+ONBOARDING_FLOW_NAME = "new-machine-onboarding"
+ONBOARDING_DEPLOYMENT_NAME = "new-machine-onboarding"
+STATION_CONFIG_PATH = os.getenv("STATION_CONFIG_PATH", "").strip() or str(Path(__file__).resolve().parent / "pipeline" / "station_config.json")
 
 # =============================================================================
 # HELPER FUNCTIONS
 # =============================================================================
+
+
+def _add_machine_to_station_config(machine_id: str) -> None:
+    """Add machine_id to station_config.json node_mappings with defaults. Atomic write to avoid races."""
+    if not STATION_CONFIG_PATH or not os.path.exists(os.path.dirname(STATION_CONFIG_PATH)):
+        logger.warning("station_config_skip", machine_id=machine_id, path=STATION_CONFIG_PATH, reason="path missing or parent missing")
+        return
+    try:
+        with open(STATION_CONFIG_PATH, "r") as f:
+            data = json.load(f)
+        node_mappings = data.get("node_mappings") or {}
+        if machine_id in node_mappings:
+            return
+        node_mappings[machine_id] = {
+            "asset_name": machine_id,
+            "shop": "",
+            "line": "",
+            "equipment_type": "Unknown",
+            "opc_node_id": "",
+            "criticality": "medium",
+            "uns_path": "",
+        }
+        data["node_mappings"] = node_mappings
+        tmp_path = STATION_CONFIG_PATH + ".tmp." + str(os.getpid())
+        with open(tmp_path, "w") as f:
+            json.dump(data, f, indent=2)
+        os.replace(tmp_path, STATION_CONFIG_PATH)
+        logger.info("station_config_updated", machine_id=machine_id)
+    except Exception as e:
+        logger.warning("station_config_update_failed", machine_id=machine_id, error=str(e))
+
+
+def _trigger_prefect_onboarding(machine_id: str) -> None:
+    """Trigger Prefect flow new-machine-onboarding for the given machine_id. No-op if PREFECT_API_URL unset or on error."""
+    if not PREFECT_API_URL:
+        return
+    try:
+        from prefect import get_client
+        with get_client(sync_client=True) as client:
+            deployment = client.read_deployment_by_name(ONBOARDING_FLOW_NAME, ONBOARDING_DEPLOYMENT_NAME)
+            if deployment:
+                client.create_flow_run_from_deployment(
+                    deployment_id=deployment.id,
+                    parameters={"machine_id": machine_id},
+                )
+                logger.info("prefect_onboarding_triggered", machine_id=machine_id, deployment=f"{ONBOARDING_FLOW_NAME}/{ONBOARDING_DEPLOYMENT_NAME}")
+            else:
+                logger.warning("prefect_onboarding_no_deployment", machine_id=machine_id, deployment=f"{ONBOARDING_FLOW_NAME}/{ONBOARDING_DEPLOYMENT_NAME}")
+    except Exception as e:
+        logger.warning("prefect_onboarding_trigger_failed", machine_id=machine_id, error=str(e))
+
+
+def _trigger_profile(machine_id: str, base_url: str) -> None:
+    """Callback: POST to API to run data profile (called after 1h delay)."""
+    if not base_url:
+        return
+    url = f"{base_url.rstrip('/')}/api/machines/{machine_id}/profile/run?hours=48"
+    try:
+        import urllib.request
+        req = urllib.request.Request(url, method="POST")
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            if 200 <= resp.status < 300:
+                logger.info("profile_trigger_sent", machine_id=machine_id, status=resp.status)
+            else:
+                logger.warning("profile_trigger_unexpected_status", machine_id=machine_id, status=resp.status)
+    except Exception as e:
+        logger.warning("profile_trigger_failed", machine_id=machine_id, error=str(e))
 
 def get_redis_connection() -> redis.Redis:
     """Create Redis pub/sub connection using config settings."""
@@ -78,9 +156,13 @@ def get_db_connection():
     )
 
 def load_ml_model() -> Tuple[Any, Any, Any]:
-    """Load trained XGBoost model for real-time inference."""
+    """Load trained XGBoost model for real-time inference (path from config, project-root resolved)."""
     try:
-        pipeline = joblib.load('gaia_model.pkl')
+        path = get_settings().model.resolved_gaia_model_path
+        if not path.exists():
+            logger.warning("ml_model_not_found", detail=f"Model not found at {path}, skipping inference")
+            return None, None, None
+        pipeline = joblib.load(str(path))
         model = pipeline.get('model')
         scaler = pipeline.get('scaler')
         feature_columns = pipeline.get('feature_columns')
@@ -95,7 +177,7 @@ def load_ml_model() -> Tuple[Any, Any, Any]:
              return None, None, None
              
     except FileNotFoundError:
-        logger.warning("ml_model_not_found", detail="gaia_model.pkl not found, skipping inference")
+        logger.warning("ml_model_not_found", detail="Model file not found, skipping inference")
         return None, None, None
     except Exception as e:
         logger.error("ml_model_load_failed", error=str(e))
@@ -122,6 +204,9 @@ class StreamConsumer:
         self.messages_received = 0
         self.batches_processed = 0
         self.features_computed = 0
+        
+        # First-seen machine IDs: schedule profile run after 1h when PROFILE_TRIGGER_API_URL is set
+        self.seen_machine_ids: set = set()
         
         # Loop control
         self.running = True
@@ -187,19 +272,12 @@ class StreamConsumer:
         return features
 
     def bulk_insert_readings(self, conn, readings: List[Dict]):
-        """Bulk insert raw readings."""
+        """Bulk insert raw readings; include uns_topic when present in payload and column exists."""
         if not readings:
             return
-            
+
         cursor = conn.cursor()
-        query = """
-            INSERT INTO sensor_readings 
-                (timestamp, machine_id, rotational_speed, temperature, torque, tool_wear, vibration_raw)
-            VALUES %s
-            ON CONFLICT (machine_id, timestamp) DO NOTHING
-        """
-        
-        values = [
+        values_with_uns = [
             (
                 r['timestamp'],
                 r['machine_id'],
@@ -207,18 +285,51 @@ class StreamConsumer:
                 r.get('temperature'),
                 r.get('torque'),
                 r.get('tool_wear'),
-                json.dumps(r.get('vibration_raw', []))
+                json.dumps(r.get('vibration_raw', [])),
+                r.get('uns_topic'),
             )
             for r in readings
         ]
-        
+        query_with_uns = """
+            INSERT INTO sensor_readings
+                (timestamp, machine_id, rotational_speed, temperature, torque, tool_wear, vibration_raw, uns_topic)
+            VALUES %s
+            ON CONFLICT (machine_id, timestamp) DO NOTHING
+        """
+        values_no_uns = [
+            (
+                r['timestamp'],
+                r['machine_id'],
+                r.get('rotational_speed'),
+                r.get('temperature'),
+                r.get('torque'),
+                r.get('tool_wear'),
+                json.dumps(r.get('vibration_raw', [])),
+            )
+            for r in readings
+        ]
+        query_no_uns = """
+            INSERT INTO sensor_readings
+                (timestamp, machine_id, rotational_speed, temperature, torque, tool_wear, vibration_raw)
+            VALUES %s
+            ON CONFLICT (machine_id, timestamp) DO NOTHING
+        """
         try:
-            extras.execute_values(cursor, query, values, page_size=100)
+            extras.execute_values(cursor, query_with_uns, values_with_uns, page_size=100)
             conn.commit()
         except Exception as e:
             conn.rollback()
-            logger.error("bulk_insert_failed", error=str(e))
-            raise
+            if "uns_topic" in str(e) or "column" in str(e).lower():
+                try:
+                    extras.execute_values(cursor, query_no_uns, values_no_uns, page_size=100)
+                    conn.commit()
+                except Exception as e2:
+                    conn.rollback()
+                    logger.error("bulk_insert_failed", error=str(e2))
+                    raise
+            else:
+                logger.error("bulk_insert_failed", error=str(e))
+                raise
         finally:
             cursor.close()
 
@@ -342,6 +453,27 @@ class StreamConsumer:
                             # Process Payload
                             payload = self.process_message(message['data'])
                             self.messages_received += 1
+                            
+                            # On first message from a machine: add to station_config, set onboarding PENDING, trigger Prefect onboarding
+                            machine_id = payload.get("machine_id")
+                            if machine_id and machine_id not in self.seen_machine_ids:
+                                self.seen_machine_ids.add(machine_id)
+                                _add_machine_to_station_config(machine_id)
+                                try:
+                                    from services.onboarding_helpers import set_onboarding_pending
+                                    set_onboarding_pending(machine_id)
+                                except Exception as ob_err:
+                                    logger.warning("onboarding_pending_failed", machine_id=machine_id, error=str(ob_err))
+                                _trigger_prefect_onboarding(machine_id)
+                                if PROFILE_TRIGGER_API_URL:
+                                    t = threading.Timer(
+                                        PROFILE_DELAY_SECONDS,
+                                        _trigger_profile,
+                                        args=[machine_id, PROFILE_TRIGGER_API_URL],
+                                    )
+                                    t.daemon = True
+                                    t.start()
+                                    logger.info("profile_scheduled", machine_id=machine_id, delay_seconds=PROFILE_DELAY_SECONDS)
                             
                             # Add to Buffer
                             self.buffer.append(payload)

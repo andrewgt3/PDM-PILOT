@@ -6,7 +6,7 @@ import {
 } from '@mui/material';
 import { Calendar, Wrench, AlertTriangle, CheckCircle, Clock } from 'lucide-react';
 
-function MaintenanceModal({ open, onClose, machines = [], onConfirm }) {
+function MaintenanceModal({ open, onClose, machines = [], onConfirm, initialTitle, initialPriority, initialParts }) {
     const isBatch = machines.length > 1;
     const primaryMachine = machines[0] || {};
 
@@ -15,21 +15,30 @@ function MaintenanceModal({ open, onClose, machines = [], onConfirm }) {
     const [priority, setPriority] = useState('normal');
     const [assignedTo, setAssignedTo] = useState('Team A');
     const [estimatedDuration, setEstimatedDuration] = useState(2); // hours
+    const [partsChips, setPartsChips] = useState([]);
 
     useEffect(() => {
         if (open && machines.length > 0) {
-            // Auto-fill logic
-            const maxRisk = Math.max(...machines.map(m => m.failure_probability || 0));
-            const suggestedPriority = maxRisk > 0.8 ? 'critical' : maxRisk > 0.5 ? 'high' : 'normal';
-            setPriority(suggestedPriority);
-
-            if (isBatch) {
+            if (initialTitle != null && initialTitle !== '') {
+                setTitle(initialTitle);
+            } else if (isBatch) {
                 setTitle(`Batch Maintenance: ${machines.length} Assets`);
             } else {
                 setTitle(`Predictive Check: ${primaryMachine.machine_id}`);
             }
+            if (initialPriority != null && initialPriority !== '') {
+                setPriority(String(initialPriority).toLowerCase());
+            } else {
+                const maxRisk = Math.max(...machines.map(m => m.failure_probability || 0));
+                setPriority(maxRisk > 0.8 ? 'critical' : maxRisk > 0.5 ? 'high' : 'normal');
+            }
+            if (Array.isArray(initialParts) && initialParts.length > 0) {
+                setPartsChips(initialParts);
+            } else {
+                setPartsChips([]);
+            }
         }
-    }, [open, machines, isBatch, primaryMachine.machine_id]);
+    }, [open, machines, isBatch, primaryMachine.machine_id, initialTitle, initialPriority, initialParts]);
 
     const handleSubmit = () => {
         // Validation logic here
@@ -102,11 +111,13 @@ function MaintenanceModal({ open, onClose, machines = [], onConfirm }) {
 
                     <Box>
                         <Typography variant="caption" color="text.secondary" gutterBottom>
-                            Recommended Parts (Auto-Generated)
+                            Recommended Parts {partsChips.length > 0 ? '' : '(Auto-Generated)'}
                         </Typography>
                         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                            {isBatch ? (
+                            {isBatch && partsChips.length === 0 ? (
                                 <Chip label="Batch Kit A" size="small" variant="outlined" />
+                            ) : partsChips.length > 0 ? (
+                                partsChips.map((p, i) => <Chip key={i} label={p} size="small" variant="outlined" />)
                             ) : (
                                 <>
                                     <Chip label="Bearing Set SKF-22" size="small" variant="outlined" />
