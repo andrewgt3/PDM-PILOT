@@ -60,7 +60,7 @@ def check_redis() -> tuple[bool, str]:
         return False, str(e)
 
 def check_abb_rws() -> tuple[bool, str]:
-    robot_ip = get_env("ROBOT_IP", get_env("ABB_IP_ADDRESS", "127.0.0.1"))
+    robot_ip = get_env("ROBOT_IP", get_env("ABB_IP_ADDRESS", "192.168.0.190"))
     robot_port = get_env("ROBOT_PORT", get_env("ABB_PORT", "80"))
     url = f"http://{robot_ip}:{robot_port}/rw/system"
     try:

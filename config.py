@@ -432,6 +432,41 @@ class SiemensS7Settings(BaseSettings):
     db_number: int = Field(default=1, ge=1, le=65535, description="Data block number (SIEMENS_DB_NUMBER)")
 
 
+class ABBRWSSettings(BaseSettings):
+    """ABB Robot Web Services (RWS) REST API configuration.
+
+    RWS uses HTTP on port 80 by default. Base URL is http://<ip>:<port>/rw
+    for endpoints like /rw/system, /rw/rapid/state, etc.
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix="ROBOT_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    ip_address: str = Field(default="192.168.0.190", description="ABB controller IP (ROBOT_IP)")
+    port: int = Field(default=80, ge=1, le=65535, description="RWS HTTP port (ROBOT_PORT)")
+    user: str = Field(default="Default User", description="RWS username (ROBOT_USER)")
+    password: SecretStr | None = Field(default=None, description="RWS password (ROBOT_PASSWORD)")
+
+    @property
+    def base_url(self) -> str:
+        """Base URL for HTTP requests (no path)."""
+        return f"http://{self.ip_address}:{self.port}"
+
+    @property
+    def rws_base_url(self) -> str:
+        """RWS API base URL including /rw path."""
+        return f"http://{self.ip_address}:{self.port}/rw"
+
+    @property
+    def connection_string(self) -> str:
+        """Human-readable connection string for logging."""
+        return f"http://{self.ip_address}:{self.port}/rw"
+
+
 class DriftSettings(BaseSettings):
     """Drift monitoring thresholds and lookback."""
 
@@ -564,6 +599,7 @@ class Settings(BaseSettings):
     drift: DriftSettings = Field(default_factory=DriftSettings)
     edge: EdgeSettings = Field(default_factory=EdgeSettings)
     abb: ABBRobotSettings = Field(default_factory=ABBRobotSettings)
+    abb_rws: ABBRWSSettings = Field(default_factory=ABBRWSSettings)
     siemens_s7: SiemensS7Settings = Field(default_factory=SiemensS7Settings)
     mqtt: MQTTSettings = Field(default_factory=MQTTSettings)
     federated: FederatedLearningSettings = Field(default_factory=FederatedLearningSettings)
